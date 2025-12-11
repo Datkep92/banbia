@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Đặt Bia Thông Minh</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Fixed Header -->
+    <div class="header-container">
+        <!-- Main Header -->
+        <header class="main-header">
+            <h1 class="title">🍺 HỆ THỐNG ĐẶT BIA 🍺</h1>
+            <div class="beer-icons">
+                <i class="fas fa-beer"></i>
+                <i class="fas fa-beer"></i>
+                <i class="fas fa-beer"></i>
+                <i class="fas fa-beer"></i>
+                <i class="fas fa-beer"></i>
+            </div>
+        </header>
+
+        <!-- Fixed Categories -->
+        <div class="fixed-categories">
+            <nav class="beer-categories">
+                <button class="category-btn active" data-category="lager">
+                    <i class="fas fa-beer"></i> LAGER
+                </button>
+                <button class="category-btn" data-category="ipa">
+                    <i class="fas fa-beer"></i> IPA
+                </button>
+                <button class="category-btn" data-category="stout">
+                    <i class="fas fa-beer"></i> STOUT
+                </button>
+                <button class="category-btn" data-category="wheat">
+                    <i class="fas fa-wheat-alt"></i> WHEAT
+                </button>
+                <button class="category-btn" data-category="ale">
+                    <i class="fas fa-apple-alt"></i> ALE
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Fixed Action Buttons -->
+    <div class="fixed-actions">
+        <button class="action-btn send-btn" id="sendOrderBtn">
+            <i class="fas fa-paper-plane"></i>
+            <span class="action-label">GỬI ĐƠN HÀNG</span>
+        </button>
+        <button class="action-btn history-btn" id="showHistoryBtn">
+            <i class="fas fa-history"></i>
+            <span class="action-label">LỊCH SỬ</span>
+        </button>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="category-title">
+            <h2><i class="fas fa-beer"></i> LAGER <span class="selected-badge">(ĐÃ CHỌN)</span></h2>
+        </div>
+
+        <div class="beer-grid" id="beerGrid">
+            <!-- Bia sẽ được tạo bằng JavaScript -->
+        </div>
+    </main>
+
+    <!-- Fixed Footer -->
+    <footer class="fixed-footer">
+        <div class="footer-content">
+            <div class="footer-info">
+                <div class="footer-item">
+                    <i class="fas fa-beer-mug-empty"></i>
+                    <div>
+                        <div class="footer-label">TỔNG SỐ LƯỢNG</div>
+                        <div class="footer-value" id="totalQuantity">0</div>
+                    </div>
+                </div>
+                <div class="footer-item">
+                    <i class="fas fa-money-bill-wave"></i>
+                    <div>
+                        <div class="footer-label">TỔNG TIỀN</div>
+                        <div class="footer-value" id="totalPrice">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Popup Lịch sử -->
+    <div class="history-popup" id="historyPopup">
+        <div class="popup-content">
+            <div class="popup-header">
+                <h3><i class="fas fa-history"></i> LỊCH SỬ ĐƠN HÀNG</h3>
+                <button class="close-popup" id="closePopupBtn">&times;</button>
+            </div>
+            
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-filter="all">TẤT CẢ</button>
+                <button class="filter-btn" data-filter="today">HÔM NAY</button>
+                <button class="filter-btn" data-filter="week">7 NGÀY</button>
+                <button class="filter-btn" data-filter="month">30 NGÀY</button>
+            </div>
+            
+            <div class="history-list" id="historyList">
+                <!-- Lịch sử sẽ được tạo bằng JavaScript -->
+            </div>
+            
+            <div class="history-summary">
+                <div class="summary-item">
+                    <span>Tổng đơn:</span>
+                    <strong id="totalOrders">0</strong>
+                </div>
+                <div class="summary-item">
+                    <span>Tổng tiền:</span>
+                    <strong id="totalHistoryAmount">0 VND</strong>
+                </div>
+                <button class="clear-history-btn" id="clearHistoryBtn">
+                    <i class="fas fa-trash"></i> XÓA LỊCH SỬ
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

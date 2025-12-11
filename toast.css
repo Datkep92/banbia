@@ -1,0 +1,128 @@
+/* Toast Notification */
+.toast-container {
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.95) 0%, rgba(255, 157, 0, 0.95) 100%);
+    border-radius: 15px;
+    padding: 20px;
+    margin: 30px auto;
+    max-width: 500px;
+    box-shadow: 0 10px 30px rgba(255, 215, 0, 0.3);
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    position: relative;
+    overflow: hidden;
+}
+
+.toast-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 10px,
+        rgba(255, 255, 255, 0.1) 10px,
+        rgba(255, 255, 255, 0.1) 20px
+    );
+    pointer-events: none;
+}
+
+.toast-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    color: #1a1a2e;
+}
+
+.toast-header i {
+    font-size: 2rem;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.toast-header span {
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.toast-content {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    gap: 20px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    margin-bottom: 15px;
+}
+
+.toast-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #1a1a2e;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.toast-item i {
+    font-size: 1.5rem;
+    color: #1a1a2e;
+}
+
+.toast-value {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #e63946;
+    min-width: 80px;
+    text-align: center;
+    text-shadow: 2px 2px 0 rgba(255, 255, 255, 0.5);
+}
+
+.toast-footer {
+    text-align: center;
+    color: rgba(26, 26, 46, 0.7);
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+/* Toast animation */
+@keyframes toastSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.toast-container {
+    animation: toastSlideIn 0.5s ease-out;
+}
+
+/* Toast update animation */
+.toast-value {
+    transition: all 0.3s ease;
+}
+
+.toast-value.updated {
+    animation: valueUpdate 0.5s ease;
+}
+
+@keyframes valueUpdate {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.3); }
+    100% { transform: scale(1); }
+}
