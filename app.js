@@ -12,8 +12,8 @@ function initApp() {
     // Render bia ban đầu
     renderBeers('lager');
     
-    // Cập nhật toast
-    updateToast();
+    // Cập nhật footer
+    updateFooter();
     
     // Render lịch sử
     renderHistory();
@@ -55,6 +55,27 @@ function initApp() {
     
     // Load giỏ hàng từ localStorage
     loadCartFromStorage();
+    
+    // Cập nhật padding cho main content dựa trên chiều cao header
+    updateMainContentPadding();
+    
+    // Cập nhật khi resize window
+    window.addEventListener('resize', updateMainContentPadding);
+}
+
+// Cập nhật padding cho main content
+function updateMainContentPadding() {
+    const headerContainer = document.querySelector('.header-container');
+    const fixedFooter = document.querySelector('.fixed-footer');
+    const mainContent = document.querySelector('.main-content');
+    
+    if (headerContainer && fixedFooter && mainContent) {
+        const headerHeight = headerContainer.offsetHeight;
+        const footerHeight = fixedFooter.offsetHeight;
+        
+        mainContent.style.paddingTop = (headerHeight + 20) + 'px';
+        mainContent.style.paddingBottom = (footerHeight + 20) + 'px';
+    }
 }
 
 // Chuyển đổi loại bia
@@ -93,6 +114,7 @@ function renderBeers(category) {
     beers.forEach(beer => {
         const beerCard = document.createElement('div');
         beerCard.className = 'beer-card';
+        beerCard.dataset.id = beer.id;
         beerCard.innerHTML = `
             <h3 class="beer-name">${beer.name}</h3>
             <div class="beer-price">${formatPrice(beer.price)} VND</div>
@@ -109,16 +131,35 @@ function renderBeers(category) {
         beerGrid.appendChild(beerCard);
     });
     
+    // Thêm sự kiện click vào card để tăng số lượng
+    document.querySelectorAll('.beer-card').forEach(card => {
+        card.addEventListener('click', function(e) {
+            // Không trigger nếu click vào nút +/-
+            if (!e.target.closest('.quantity-btn')) {
+                const beerId = parseInt(this.dataset.id);
+                changeQuantity(beerId, 1);
+                
+                // Animation
+                this.classList.add('clicked');
+                setTimeout(() => {
+                    this.classList.remove('clicked');
+                }, 300);
+            }
+        });
+    });
+    
     // Thêm sự kiện cho nút +/-
     document.querySelectorAll('.plus-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
             const beerId = parseInt(this.dataset.id);
             changeQuantity(beerId, 1);
         });
     });
     
     document.querySelectorAll('.minus-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
             const beerId = parseInt(this.dataset.id);
             changeQuantity(beerId, -1);
         });
@@ -142,8 +183,8 @@ function changeQuantity(beerId, change) {
             // Cập nhật giỏ hàng
             updateCart(beer, newQuantity);
             
-            // Cập nhật toast
-            updateToast();
+            // Cập nhật footer
+            updateFooter();
             
             // Animation
             const quantityElement = document.getElementById(`quantity-${beerId}`);
@@ -198,11 +239,11 @@ function loadCartFromStorage() {
     
     // Render lại bia hiện tại
     renderBeers(currentCategory);
-    updateToast();
+    updateFooter();
 }
 
-// Cập nhật toast thông báo
-function updateToast() {
+// Cập nhật footer
+function updateFooter() {
     // Tính tổng số lượng và tổng tiền từ tất cả loại bia
     totalQuantity = 0;
     totalPrice = 0;
@@ -214,7 +255,7 @@ function updateToast() {
         });
     });
     
-    // Cập nhật hiển thị
+    // Cập nhật hiển thị footer
     document.getElementById('totalQuantity').textContent = totalQuantity;
     document.getElementById('totalPrice').textContent = formatPrice(totalPrice);
     
@@ -233,6 +274,12 @@ function sendOrder() {
         alert('Vui lòng chọn ít nhất 1 ly bia!');
         return;
     }
+    
+    // Hiển thị loading
+    const sendBtn = document.getElementById('sendOrderBtn');
+    const originalHTML = sendBtn.innerHTML;
+    sendBtn.innerHTML = '<div class="loading"></div>';
+    sendBtn.disabled = true;
     
     // Tạo đơn hàng mới
     const order = {
@@ -266,15 +313,21 @@ function sendOrder() {
     saveToLocalStorage();
     
     // Cập nhật UI
-    updateToast();
+    updateFooter();
     renderHistory();
     
-    // Hiển thị thông báo
-    alert(`✅ Đơn hàng đã được gửi thành công!\n\nTổng: ${totalQuantity} ly - ${formatPrice(totalPrice)} VND`);
-    
-    // Reset biến tạm
-    totalQuantity = 0;
-    totalPrice = 0;
+    // Restore button
+    setTimeout(() => {
+        sendBtn.innerHTML = originalHTML;
+        sendBtn.disabled = false;
+        
+        // Hiển thị thông báo
+        alert(`✅ Đơn hàng đã được gửi thành công!\n\nTổng: ${totalQuantity} ly - ${formatPrice(totalPrice)} VND`);
+        
+        // Reset biến tạm
+        totalQuantity = 0;
+        totalPrice = 0;
+    }, 1000);
 }
 
 // Reset giỏ hàng
