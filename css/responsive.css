@@ -1,0 +1,520 @@
+/* Responsive Design */
+
+/* Large devices (desktops, 1200px and up) */
+@media (min-width: 1200px) {
+    .products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    }
+    
+    .modal-container {
+        max-width: 600px;
+    }
+}
+
+/* Medium devices (tablets, 768px to 1199px) */
+@media (min-width: 768px) and (max-width: 1199px) {
+    .products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    }
+    
+    .admin-sidebar {
+        width: 200px;
+    }
+    
+    .admin-main {
+        margin-left: 200px;
+    }
+}
+
+/* Small devices (landscape phones, 576px to 767px) */
+@media (min-width: 576px) and (max-width: 767px) {
+    .products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    }
+    
+    .header-left {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+    
+    .categories-menu {
+        max-width: 100%;
+    }
+    
+    .fab-container {
+        bottom: 140px;
+        right: 15px;
+    }
+    
+    .fab {
+        width: 50px;
+        height: 50px;
+        font-size: 20px;
+    }
+    
+    .cart-content {
+        flex-direction: column;
+    }
+    
+    .cart-totals {
+        border-left: none;
+        border-top: 1px solid #ddd;
+        padding-left: 0;
+        padding-top: 15px;
+        margin-top: 15px;
+    }
+}
+
+/* Extra small devices (portrait phones, less than 576px) */
+@media (max-width: 575px) {
+    /* General adjustments */
+    body {
+        font-size: 14px;
+    }
+    
+    .btn {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+    
+    /* Admin panel */
+    .admin-sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+    }
+    
+    .admin-main {
+        margin-left: 0;
+    }
+    
+    .sidebar-nav {
+        display: flex;
+        overflow-x: auto;
+        padding: 10px 0;
+    }
+    
+    .nav-item {
+        flex-shrink: 0;
+        padding: 8px 15px;
+    }
+    
+    .sidebar-footer {
+        position: relative;
+        padding: 15px;
+    }
+    
+    .admin-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+        padding: 15px;
+    }
+    
+    .header-actions {
+        width: 100%;
+    }
+    
+    #add-hkd-btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    /* HKD POS */
+    .hkd-header {
+        flex-direction: column;
+        gap: 15px;
+        padding: 12px 15px;
+    }
+    
+    .header-left {
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .logo h1 {
+        font-size: 18px;
+    }
+    
+    .categories-menu {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 5px;
+    }
+    
+    .category-item {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+    
+    .user-info {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    /* Products grid */
+    .products-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    
+    .product-card {
+        border-radius: 6px;
+    }
+    
+    .product-image {
+        height: 100px;
+        font-size: 36px;
+    }
+    
+    .product-info {
+        padding: 12px;
+    }
+    
+    .product-name {
+        font-size: 13px;
+    }
+    
+    .product-price {
+        font-size: 14px;
+    }
+    
+    .product-actions {
+        padding: 8px 12px;
+        gap: 8px;
+    }
+    
+    /* Floating buttons */
+    .fab-container {
+        bottom: 120px;
+        right: 10px;
+        gap: 8px;
+    }
+    
+    .fab {
+        width: 45px;
+        height: 45px;
+        font-size: 18px;
+    }
+    
+    /* Footer cart */
+    .cart-summary {
+        padding: 12px 15px;
+    }
+    
+    .cart-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px 0;
+    }
+    
+    .cart-item-actions {
+        margin: 0;
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .cart-item-total {
+        width: 100%;
+        text-align: right;
+        margin-top: 5px;
+    }
+    
+    .footer-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .footer-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    /* Modal adjustments */
+    .modal-container {
+        width: 95%;
+        max-height: 85vh;
+    }
+    
+    .modal-header {
+        padding: 12px 15px;
+    }
+    
+    .modal-body {
+        padding: 15px;
+        max-height: 50vh;
+    }
+    
+    .modal-footer {
+        padding: 12px 15px;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .modal-footer .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    /* Tables */
+    .table-container {
+        font-size: 12px;
+    }
+    
+    th, td {
+        padding: 8px;
+    }
+    
+    /* Form adjustments */
+    .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .search-bar {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .search-bar input {
+        width: 100%;
+    }
+    
+    /* Stats grid */
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    /* Invoice printing */
+    .invoice {
+        padding: 15px;
+        font-size: 12px;
+    }
+    
+    .invoice-table th,
+    .invoice-table td {
+        padding: 6px;
+        font-size: 11px;
+    }
+    
+    /* Login pages */
+    .login-container {
+        padding: 10px;
+    }
+    
+    .login-box {
+        border-radius: 8px;
+    }
+    
+    .login-header {
+        padding: 25px 15px;
+    }
+    
+    .login-header h1 {
+        font-size: 22px;
+    }
+    
+    .login-body {
+        padding: 25px 20px;
+    }
+    
+    /* Hide some elements on mobile */
+    .product-stock {
+        font-size: 11px;
+    }
+    
+    .cart-item-price {
+        font-size: 11px;
+    }
+    
+    /* Touch-friendly adjustments */
+    input, select, textarea, button {
+        font-size: 16px; /* Prevents zoom on iOS */
+    }
+    
+    /* Action buttons spacing */
+    .action-buttons {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .action-buttons .btn-icon {
+        padding: 6px;
+        font-size: 16px;
+    }
+    
+    /* Status badges */
+    .status-badge {
+        font-size: 11px;
+        padding: 3px 6px;
+    }
+    
+    /* Empty states */
+    .empty-products,
+    .empty-state {
+        padding: 30px 15px !important;
+    }
+    
+    /* Loading spinner */
+    .spinner {
+        width: 30px;
+        height: 30px;
+        border-width: 3px;
+    }
+}
+
+/* Very small devices (iPhone 5/SE and similar) */
+@media (max-width: 320px) {
+    .products-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .category-item {
+        padding: 5px 10px;
+        font-size: 12px;
+    }
+    
+    .fab {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+    }
+}
+
+/* Tablet landscape optimization */
+@media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
+    .hkd-main {
+        min-height: calc(100vh - 110px);
+    }
+    
+    .products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    }
+    
+    .fab-container {
+        bottom: 110px;
+    }
+}
+
+/* Print styles */
+@media print {
+    .hkd-header,
+    .hkd-footer,
+    .fab-container,
+    .modal-overlay,
+    .modal-close,
+    .modal-footer {
+        display: none !important;
+    }
+    
+    .modal {
+        position: static;
+        background: white;
+    }
+    
+    .modal-container {
+        box-shadow: none;
+        max-width: none;
+        max-height: none;
+    }
+    
+    body {
+        background: white;
+    }
+    
+    .invoice {
+        box-shadow: none;
+        border: 1px solid #ddd;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .login-container {
+        background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+    }
+    
+    .login-box {
+        background: #21262d;
+        color: #c9d1d9;
+    }
+    
+    .login-header {
+        background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+    }
+    
+    .form-group input {
+        background: #0d1117;
+        border-color: #30363d;
+        color: #c9d1d9;
+    }
+    
+    .form-group input:focus {
+        border-color: #238636;
+        box-shadow: 0 0 0 3px rgba(35, 134, 54, 0.3);
+    }
+    
+    .form-group label {
+        color: #8b949e;
+    }
+    
+    .login-footer {
+        border-color: #30363d;
+        color: #8b949e;
+    }
+    
+    .back-home {
+        color: #58a6ff;
+    }
+    
+    .back-home:hover {
+        color: #79c0ff;
+    }
+    
+    .login-button {
+        background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+    }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+    .btn-primary {
+        background: #0000ff;
+        color: #ffff00;
+    }
+    
+    .btn-secondary {
+        background: #808080;
+        color: #ffffff;
+    }
+    
+    input, select, textarea {
+        border: 2px solid #000000;
+    }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+    
+    .login-header::before {
+        animation: none;
+        display: none;
+    }
+    
+    .login-form {
+        animation: none;
+    }
+}

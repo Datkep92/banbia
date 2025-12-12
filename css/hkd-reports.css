@@ -1,0 +1,557 @@
+/* invoice-detail-modal.css */
+/* ==================== MODAL OVERLAY ==================== */
+.hkd-modal.invoice-modal {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background-color: rgba(0, 0, 0, 0.75) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 99999 !important; /* Z-index cao nhất */
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transition: all 0.3s ease !important;
+    backdrop-filter: blur(5px) !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+}
+
+.hkd-modal.invoice-modal.show {
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* ==================== MODAL CONTENT ==================== */
+.hkd-modal.invoice-modal .hkd-modal-content {
+    position: relative !important;
+    background: linear-gradient(145deg, #ffffff, #f8f9fa) !important;
+    border-radius: 20px !important;
+    box-shadow: 
+        0 25px 100px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(255, 255, 255, 0.15) inset,
+        0 20px 50px rgba(0, 0, 0, 0.3) !important;
+    transform: translateY(40px) scale(0.95) !important;
+    transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+                opacity 0.5s ease !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    max-height: 90vh !important;
+    max-width: 95vw !important;
+    width: auto !important;
+    margin: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    animation: modalFloat 3s ease-in-out infinite !important;
+}
+
+@keyframes modalFloat {
+    0%, 100% {
+        transform: translateY(0) scale(1) !important;
+    }
+    50% {
+        transform: translateY(-10px) scale(1) !important;
+    }
+}
+
+.hkd-modal.invoice-modal.show .hkd-modal-content {
+    transform: translateY(0) scale(1) !important;
+    animation: modalAppear 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards !important;
+}
+
+@keyframes modalAppear {
+    0% {
+        transform: translateY(40px) scale(0.95) !important;
+        opacity: 0 !important;
+    }
+    50% {
+        transform: translateY(-20px) scale(1.02) !important;
+        opacity: 1 !important;
+    }
+    100% {
+        transform: translateY(0) scale(1) !important;
+        opacity: 1 !important;
+    }
+}
+
+/* ==================== MODAL HEADER ==================== */
+.hkd-modal.invoice-modal .hkd-modal-header {
+    background: linear-gradient(135deg, #0f3460, #16213e) !important;
+    color: white !important;
+    padding: 25px 30px !important;
+    border-bottom: 4px solid #007bff !important;
+    position: relative !important;
+    flex-shrink: 0 !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+    z-index: 10 !important;
+}
+
+.hkd-modal.invoice-modal .hkd-modal-header h3 {
+    margin: 0 !important;
+    font-size: 1.8rem !important;
+    font-weight: 700 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 15px !important;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+.hkd-modal.invoice-modal .hkd-modal-header .hkd-modal-close {
+    position: absolute !important;
+    right: 25px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border: 2px solid rgba(255, 255, 255, 0.3) !important;
+    color: white !important;
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 50% !important;
+    font-size: 26px !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 1000 !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2) !important;
+}
+
+.hkd-modal.invoice-modal .hkd-modal-header .hkd-modal-close:hover {
+    background: rgba(255, 255, 255, 0.25) !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    transform: translateY(-50%) rotate(90deg) !important;
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* ==================== MODAL BODY ==================== */
+.hkd-modal.invoice-modal .hkd-modal-body {
+    padding: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    flex-grow: 1 !important;
+    max-height: calc(90vh - 200px) !important; /* Trừ header và footer */
+    background: linear-gradient(to bottom, #ffffff, #fafbfc) !important;
+}
+
+/* Custom scrollbar for modal body */
+.hkd-modal.invoice-modal .hkd-modal-body::-webkit-scrollbar {
+    width: 8px !important;
+}
+
+.hkd-modal.invoice-modal .hkd-modal-body::-webkit-scrollbar-track {
+    background: #f1f1f1 !important;
+    border-radius: 4px !important;
+}
+
+.hkd-modal.invoice-modal .hkd-modal-body::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #007bff, #0056b3) !important;
+    border-radius: 4px !important;
+}
+
+.hkd-modal.invoice-modal .hkd-modal-body::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #0056b3, #004085) !important;
+}
+
+/* ==================== MODAL FOOTER ==================== */
+.hkd-modal.invoice-modal .hkd-modal-footer {
+    background: linear-gradient(to top, #f8f9fa, #e9ecef) !important;
+    padding: 20px 30px !important;
+    border-top: 2px solid #dee2e6 !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    gap: 15px !important;
+    flex-shrink: 0 !important;
+    box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.05) !important;
+    z-index: 10 !important;
+    border-radius: 0 0 20px 20px !important;
+}
+
+/* ==================== BUTTON STYLES ==================== */
+.hkd-modal.invoice-modal .hkd-btn {
+    padding: 12px 28px !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    border: none !important;
+    border-radius: 10px !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 10px !important;
+    position: relative !important;
+    overflow: hidden !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2) !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn:active {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn-secondary {
+    background: linear-gradient(135deg, #6c757d, #545b62) !important;
+    color: white !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn-secondary:hover {
+    background: linear-gradient(135deg, #545b62, #4a5056) !important;
+    box-shadow: 0 8px 20px rgba(108, 117, 125, 0.3) !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn-success {
+    background: linear-gradient(135deg, #28a745, #218838) !important;
+    color: white !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn-success:hover {
+    background: linear-gradient(135deg, #218838, #1e7e34) !important;
+    box-shadow: 0 8px 20px rgba(40, 167, 69, 0.3) !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn-primary {
+    background: linear-gradient(135deg, #007bff, #0056b3) !important;
+    color: white !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn-primary:hover {
+    background: linear-gradient(135deg, #0056b3, #004085) !important;
+    box-shadow: 0 8px 20px rgba(0, 123, 255, 0.3) !important;
+}
+
+/* ==================== RIPPLE EFFECT ==================== */
+.hkd-modal.invoice-modal .hkd-btn::after {
+    content: '' !important;
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    width: 5px !important;
+    height: 5px !important;
+    background: rgba(255, 255, 255, 0.7) !important;
+    opacity: 0 !important;
+    border-radius: 100% !important;
+    transform: scale(1, 1) translate(-50%) !important;
+    transform-origin: 50% 50% !important;
+}
+
+.hkd-modal.invoice-modal .hkd-btn:focus:not(:active)::after {
+    animation: ripple 1s ease-out !important;
+}
+
+@keyframes ripple {
+    0% {
+        transform: scale(0, 0) !important;
+        opacity: 0.7 !important;
+    }
+    20% {
+        transform: scale(25, 25) !important;
+        opacity: 0.5 !important;
+    }
+    100% {
+        opacity: 0 !important;
+        transform: scale(40, 40) !important;
+    }
+}
+
+/* ==================== TABLE STYLES ==================== */
+.hkd-modal.invoice-modal .invoice-products-table {
+    width: 100% !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    font-size: 0.95rem !important;
+    background: white !important;
+    border-radius: 10px !important;
+    overflow: hidden !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08) !important;
+}
+
+.hkd-modal.invoice-modal .invoice-products-table th {
+    position: sticky !important;
+    top: 0 !important;
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef) !important;
+    z-index: 20 !important;
+    padding: 16px 12px !important;
+    border-bottom: 3px solid #007bff !important;
+    font-weight: 700 !important;
+    color: #495057 !important;
+    text-align: left !important;
+    white-space: nowrap !important;
+    text-transform: uppercase !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.5px !important;
+}
+
+.hkd-modal.invoice-modal .invoice-products-table tbody tr {
+    border-bottom: 1px solid #f0f0f0 !important;
+    transition: all 0.3s ease !important;
+    background: white !important;
+}
+
+.hkd-modal.invoice-modal .invoice-products-table tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.06) !important;
+    transform: translateX(5px) !important;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1) !important;
+    z-index: 1 !important;
+    position: relative !important;
+}
+
+.hkd-modal.invoice-modal .invoice-products-table td {
+    padding: 14px 12px !important;
+    color: #495057 !important;
+    vertical-align: middle !important;
+    border-bottom: 1px solid #f8f9fa !important;
+}
+
+/* ==================== SCROLLBAR FOR TABLE ==================== */
+.hkd-modal.invoice-modal .table-responsive::-webkit-scrollbar {
+    width: 10px !important;
+    height: 10px !important;
+}
+
+.hkd-modal.invoice-modal .table-responsive::-webkit-scrollbar-track {
+    background: #f1f1f1 !important;
+    border-radius: 5px !important;
+}
+
+.hkd-modal.invoice-modal .table-responsive::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #007bff, #0056b3) !important;
+    border-radius: 5px !important;
+}
+
+.hkd-modal.invoice-modal .table-responsive::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #0056b3, #004085) !important;
+}
+
+/* ==================== RESPONSIVE DESIGN ==================== */
+@media (max-width: 1600px) {
+    .hkd-modal.invoice-modal .hkd-modal-content {
+        max-width: 98vw !important;
+        margin: 10px !important;
+    }
+    
+    .hkd-modal.invoice-modal .invoice-products-table {
+        font-size: 0.9rem !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-body {
+        max-height: calc(90vh - 180px) !important;
+    }
+}
+
+@media (max-width: 1200px) {
+    .hkd-modal.invoice-modal .hkd-modal-content {
+        width: 98% !important;
+        max-width: 98vw !important;
+        border-radius: 15px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-header {
+        padding: 20px 25px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-header h3 {
+        font-size: 1.5rem !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-footer {
+        padding: 15px 25px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-btn {
+        padding: 10px 20px !important;
+        font-size: 0.9rem !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .hkd-modal.invoice-modal {
+        padding: 10px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-content {
+        max-height: 95vh !important;
+        width: 100% !important;
+        border-radius: 10px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-header {
+        padding: 15px 20px !important;
+        flex-direction: column !important;
+        text-align: center !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-header h3 {
+        font-size: 1.3rem !important;
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-header .hkd-modal-close {
+        position: absolute !important;
+        top: 15px !important;
+        right: 15px !important;
+        transform: none !important;
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 20px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-footer {
+        flex-direction: column !important;
+        gap: 10px !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-btn {
+        width: 100% !important;
+        padding: 12px !important;
+    }
+    
+    .hkd-modal.invoice-modal .table-responsive {
+        overflow-x: auto !important;
+    }
+    
+    .hkd-modal.invoice-modal .invoice-products-table {
+        min-width: 1200px !important; /* Đảm bảo bảng không bị co lại quá nhiều */
+    }
+}
+
+/* ==================== PRINT STYLES ==================== */
+@media print {
+    .hkd-modal.invoice-modal {
+        position: absolute !important;
+        background: white !important;
+        width: 100% !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-content {
+        box-shadow: none !important;
+        border: none !important;
+        max-width: 100% !important;
+        max-height: none !important;
+        transform: none !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-header,
+    .hkd-modal.invoice-modal .hkd-modal-footer,
+    .hkd-modal.invoice-modal .hkd-modal-close {
+        display: none !important;
+    }
+    
+    .hkd-modal.invoice-modal .hkd-modal-body {
+        overflow: visible !important;
+        max-height: none !important;
+        background: white !important;
+    }
+}
+
+/* ==================== GLOW EFFECT ==================== */
+.hkd-modal.invoice-modal .hkd-modal-content::before {
+    content: '' !important;
+    position: absolute !important;
+    top: -2px !important;
+    left: -2px !important;
+    right: -2px !important;
+    bottom: -2px !important;
+    background: linear-gradient(45deg, 
+        #007bff, #28a745, #ffc107, #dc3545,
+        #007bff, #28a745, #ffc107, #dc3545) !important;
+    background-size: 400% 400% !important;
+    border-radius: 22px !important;
+    z-index: -1 !important;
+    animation: borderGlow 8s ease infinite !important;
+    opacity: 0.5 !important;
+    filter: blur(10px) !important;
+}
+
+@keyframes borderGlow {
+    0% {
+        background-position: 0% 50% !important;
+    }
+    50% {
+        background-position: 100% 50% !important;
+    }
+    100% {
+        background-position: 0% 50% !important;
+    }
+}
+
+/* ==================== LOADING ANIMATION ==================== */
+.hkd-modal.invoice-modal.loading .hkd-modal-content {
+    animation: pulse 1.5s ease-in-out infinite !important;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1) !important;
+    }
+    50% {
+        transform: scale(1.01) !important;
+    }
+}
+
+/* ==================== EMPTY STATE ==================== */
+.hkd-modal.invoice-modal .empty-state {
+    text-align: center !important;
+    padding: 50px 20px !important;
+    color: #6c757d !important;
+}
+
+.hkd-modal.invoice-modal .empty-state .empty-icon {
+    font-size: 60px !important;
+    margin-bottom: 20px !important;
+    opacity: 0.3 !important;
+}
+
+.hkd-modal.invoice-modal .empty-state p {
+    font-size: 1.2rem !important;
+    margin: 0 !important;
+}
+
+/* ==================== TOOLTIP ==================== */
+.hkd-modal.invoice-modal [title] {
+    position: relative !important;
+    cursor: help !important;
+}
+
+.hkd-modal.invoice-modal [title]:hover::after {
+    content: attr(title) !important;
+    position: absolute !important;
+    bottom: 100% !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    background: rgba(0, 0, 0, 0.8) !important;
+    color: white !important;
+    padding: 8px 12px !important;
+    border-radius: 6px !important;
+    font-size: 0.85rem !important;
+    white-space: nowrap !important;
+    z-index: 1000 !important;
+    pointer-events: none !important;
+    margin-bottom: 5px !important;
+}
+
+.hkd-modal.invoice-modal [title]:hover::before {
+    content: '' !important;
+    position: absolute !important;
+    bottom: 100% !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    border: 5px solid transparent !important;
+    border-top-color: rgba(0, 0, 0, 0.8) !important;
+    z-index: 1000 !important;
+    pointer-events: none !important;
+}
