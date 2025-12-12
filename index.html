@@ -3,129 +3,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ Thống Đặt Bia Thông Minh</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="styles.css">
+    <title>Hệ Thống Quản Lý Bán Hàng</title>
+    <link rel="stylesheet" href="css/index.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
 </head>
 <body>
-    <!-- Fixed Header -->
-    <div class="header-container">
-        <!-- Main Header -->
-        <header class="main-header">
-            <h1 class="title">🍺 HỆ THỐNG ĐẶT BIA 🍺</h1>
-            <div class="beer-icons">
-                <i class="fas fa-beer"></i>
-                <i class="fas fa-beer"></i>
-                <i class="fas fa-beer"></i>
-                <i class="fas fa-beer"></i>
-                <i class="fas fa-beer"></i>
+    <header class="index-header">
+        <h1><i class="fas fa-store"></i> Hệ Thống Quản Lý Bán Hàng</h1>
+        <p>Giải pháp toàn diện cho Hộ Kinh Doanh - Quản lý đơn giản, bán hàng hiệu quả</p>
+    </header>
+    
+    <main class="index-main">
+        <div class="hero-section">
+            <h2 class="hero-title">Quản lý bán hàng thông minh</h2>
+            <p class="hero-subtitle">
+                Hệ thống giúp bạn quản lý HKD, theo dõi doanh thu, bán hàng nhanh chóng 
+                và hoạt động ngay cả khi không có kết nối internet
+            </p>
+            
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-store"></i>
+                    </div>
+                    <h3>Quản lý HKD</h3>
+                    <p>Tạo và quản lý thông tin Hộ Kinh Doanh dễ dàng, khoa học</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-shopping-cart"></i>
+                    </div>
+                    <h3>Bán hàng nhanh</h3>
+                    <p>Giao diện bán hàng trực quan, thanh toán chỉ với vài thao tác</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <h3>Báo cáo doanh thu</h3>
+                    <p>Theo dõi doanh thu, phân tích hiệu quả kinh doanh chi tiết</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-wifi-slash"></i>
+                    </div>
+                    <h3>Hoạt động Offline</h3>
+                    <p>Làm việc không cần internet, tự động đồng bộ khi có mạng</p>
+                </div>
             </div>
-        </header>
-
-        <!-- Fixed Categories -->
-        <div class="fixed-categories">
-            <nav class="beer-categories">
-                <button class="category-btn active" data-category="lager">
-                    <i class="fas fa-beer"></i> LAGER
-                </button>
-                <button class="category-btn" data-category="ipa">
-                    <i class="fas fa-beer"></i> IPA
-                </button>
-                <button class="category-btn" data-category="stout">
-                    <i class="fas fa-beer"></i> STOUT
-                </button>
-                <button class="category-btn" data-category="wheat">
-                    <i class="fas fa-wheat-alt"></i> WHEAT
-                </button>
-                <button class="category-btn" data-category="ale">
-                    <i class="fas fa-apple-alt"></i> ALE
-                </button>
-            </nav>
-        </div>
-    </div>
-
-    <!-- Fixed Action Buttons -->
-    <div class="fixed-actions">
-        <button class="action-btn send-btn" id="sendOrderBtn">
-            <i class="fas fa-paper-plane"></i>
-            <span class="action-label">GỬI ĐƠN HÀNG</span>
-        </button>
-        <button class="action-btn history-btn" id="showHistoryBtn">
-            <i class="fas fa-history"></i>
-            <span class="action-label">LỊCH SỬ</span>
-        </button>
-    </div>
-
-    <!-- Main Content -->
-    <main class="main-content">
-        <div class="category-title">
-            <h2><i class="fas fa-beer"></i> LAGER <span class="selected-badge">(ĐÃ CHỌN)</span></h2>
-        </div>
-
-        <div class="beer-grid" id="beerGrid">
-            <!-- Bia sẽ được tạo bằng JavaScript -->
+            
+            <div class="access-options">
+                <div class="access-card">
+                    <div class="access-icon">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <h3>Quản trị viên</h3>
+                    <p>Quản lý toàn bộ hệ thống, HKD và xem báo cáo</p>
+                    <a href="admin.html" class="access-btn">
+                        <i class="fas fa-sign-in-alt"></i>
+                        Truy cập Admin
+                    </a>
+                </div>
+                
+                <div class="access-card hkd">
+                    <div class="access-icon">
+                        <i class="fas fa-store"></i>
+                    </div>
+                    <h3>Hộ Kinh Doanh</h3>
+                    <p>Đăng nhập để bán hàng và quản lý cửa hàng</p>
+                    <a href="hkd.html" class="access-btn hkd">
+                        <i class="fas fa-sign-in-alt"></i>
+                        Đăng nhập HKD
+                    </a>
+                </div>
+            </div>
         </div>
     </main>
-
-    <!-- Fixed Footer -->
-    <footer class="fixed-footer">
-        <div class="footer-content">
-            <div class="footer-info">
-                <div class="footer-item">
-                    <i class="fas fa-beer-mug-empty"></i>
-                    <div>
-                        <div class="footer-label">TỔNG SỐ LƯỢNG</div>
-                        <div class="footer-value" id="totalQuantity">0</div>
-                    </div>
-                </div>
-                <div class="footer-item">
-                    <i class="fas fa-money-bill-wave"></i>
-                    <div>
-                        <div class="footer-label">TỔNG TIỀN</div>
-                        <div class="footer-value" id="totalPrice">0</div>
-                    </div>
-                </div>
-            </div>
+    
+    <footer class="index-footer">
+        <p class="footer-text">© 2024 Hệ Thống Quản Lý Bán Hàng - Phiên bản 1.0.0</p>
+        <div class="footer-links">
+            <a href="#" class="footer-link"><i class="fas fa-question-circle"></i> Hướng dẫn sử dụng</a>
+            <a href="#" class="footer-link"><i class="fas fa-headset"></i> Liên hệ hỗ trợ</a>
+            <a href="#" class="footer-link"><i class="fas fa-shield-alt"></i> Chính sách bảo mật</a>
+            <a href="#" class="footer-link"><i class="fas fa-file-contract"></i> Điều khoản dịch vụ</a>
         </div>
     </footer>
 
-    <!-- Popup Lịch sử -->
-    <div class="history-popup" id="historyPopup">
-        <div class="popup-content">
-            <div class="popup-header">
-                <h3><i class="fas fa-history"></i> LỊCH SỬ ĐƠN HÀNG</h3>
-                <button class="close-popup" id="closePopupBtn">&times;</button>
-            </div>
+    <!-- Load scripts -->
+    <script src="firebase-config.js"></script>
+    <script src="database.js"></script>
+    <script src="utils.js"></script>
+    
+    <script>
+        // Tạo instance utils
+        const utils = new Utils();
+        
+        // Kiểm tra kết nối mạng
+        window.addEventListener('load', () => {
+            if (!navigator.onLine) {
+                utils.showNotification('Bạn đang ở chế độ offline. Một số tính năng có thể bị hạn chế.', 'warning');
+            }
+        });
+        
+        // Lắng nghe sự kiện online/offline
+        window.addEventListener('online', () => {
+            utils.showNotification('Đã kết nối lại mạng', 'success');
+        });
+        
+        window.addEventListener('offline', () => {
+            utils.showNotification('Mất kết nối mạng', 'warning');
+        });
+        
+        // Kiểm tra nếu đã đăng nhập admin thì tự động chuyển
+        window.addEventListener('load', () => {
+            const adminToken = localStorage.getItem('admin_token');
+            const loginTime = localStorage.getItem('admin_login_time');
             
-            <div class="filter-buttons">
-                <button class="filter-btn active" data-filter="all">TẤT CẢ</button>
-                <button class="filter-btn" data-filter="today">HÔM NAY</button>
-                <button class="filter-btn" data-filter="week">7 NGÀY</button>
-                <button class="filter-btn" data-filter="month">30 NGÀY</button>
-            </div>
-            
-            <div class="history-list" id="historyList">
-                <!-- Lịch sử sẽ được tạo bằng JavaScript -->
-            </div>
-            
-            <div class="history-summary">
-                <div class="summary-item">
-                    <span>Tổng đơn:</span>
-                    <strong id="totalOrders">0</strong>
-                </div>
-                <div class="summary-item">
-                    <span>Tổng tiền:</span>
-                    <strong id="totalHistoryAmount">0 VND</strong>
-                </div>
-                <button class="clear-history-btn" id="clearHistoryBtn">
-                    <i class="fas fa-trash"></i> XÓA LỊCH SỬ
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Scripts -->
-    <script src="data.js"></script>
-    <script src="app.js"></script>
+            if (adminToken === 'admin_authenticated' && loginTime) {
+                const loginDate = new Date(loginTime);
+                const now = new Date();
+                const hoursDiff = (now - loginDate) / (1000 * 60 * 60);
+                
+                if (hoursDiff < 24) {
+                    // Đã đăng nhập admin, tự động chuyển đến admin dashboard
+                    setTimeout(() => {
+                        window.location.href = 'admin.html';
+                    }, 500);
+                }
+            }
+        });
+    </script>
 </body>
 </html>

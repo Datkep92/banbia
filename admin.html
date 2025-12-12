@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="css/admin.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/reports.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <!-- Login Section -->
+    <div id="login-section" class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <div class="admin-icon">👑</div>
+                <h1>Admin Dashboard</h1>
+                <p>Quản trị hệ thống bán hàng</p>
+                <div class="version">v2.0.0</div>
+            </div>
+            
+            <div class="login-body">
+                <svg class="login-illustration" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                    <path fill="#0f3460" d="M44.7,-76.4C58.8,-69.2,71.8,-59.1,79.6,-45.8C87.4,-32.6,90,-16.3,88.5,-0.9C87,14.6,81.4,29.2,74.1,43.2C66.7,57.2,57.6,70.6,45,78.1C32.4,85.6,16.2,87.1,0.7,85.9C-14.8,84.7,-29.6,80.9,-43.9,74.1C-58.2,67.3,-72,57.5,-79.8,44.3C-87.7,31.1,-89.6,14.6,-88.9,-1.8C-88.2,-18.2,-85,-36.4,-76.9,-51.1C-68.8,-65.8,-55.9,-77,-41.9,-84.5C-27.9,-92,-13.9,-95.8,0.7,-97C15.3,-98.1,30.5,-83.5,44.7,-76.4Z" transform="translate(100 100)" />
+                </svg>
+                
+                <form id="login-form" class="login-form">
+                    <div class="form-group">
+                        <label for="username">
+                            <i class="fas fa-user"></i> Tên đăng nhập
+                        </label>
+                        <input type="text" id="username" name="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">
+                            <i class="fas fa-lock"></i> Mật khẩu
+                        </label>
+                        <div class="password-container">
+                            <input type="password" id="password" name="password" required>
+                            <button type="button" class="toggle-password">
+                                <i class="fas fa-eye-slash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <p class="login-message" id="login-message"></p>
+                    <button type="submit" id="login-btn" class="login-button">
+                        <i class="fas fa-sign-in-alt"></i> <span>Đăng nhập</span>
+                    </button>
+                </form>
+            </div>
+            <div class="login-footer">
+                <p>&copy; 2024 Admin Panel. All rights reserved.</p>
+                <a href="#" class="back-home"><i class="fas fa-arrow-left"></i> Quay lại trang chủ</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Section -->
+    <div id="dashboard-section" class="admin-dashboard">
+        <div class="admin-container no-sidebar">
+            <!-- Header với tất cả điều khiển -->
+            <div class="admin-header">
+                <div class="header-left">
+                    <h1><i class="fas fa-tachometer-alt"></i> ADMIN PANEL</h1>
+                    <div class="user-info">
+                        <div class="user-avatar" id="user-avatar">AD</div>
+                        <span class="user-name" id="user-name">Admin</span>
+                    </div>
+                </div>
+                
+                <div class="header-right">
+                    <!-- Navigation Tabs -->
+                    <div class="header-tabs">
+                        <button class="header-tab active" data-tab="hkd-list">
+                            <i class="fas fa-store"></i> HKD
+                        </button>
+                        <button class="header-tab" data-tab="import-section">
+                            <i class="fas fa-file-import"></i> Import
+                        </button>
+                        <button class="header-tab" data-tab="reports-section">
+                            <i class="fas fa-chart-bar"></i> Báo cáo
+                        </button>
+                        <button class="header-tab" data-tab="settings">
+                            <i class="fas fa-cog"></i> Cài đặt
+                        </button>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="header-actions">
+                        <button class="action-btn" id="refresh-data-btn" title="Làm mới dữ liệu">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                        <button class="action-btn" id="clear-cache-btn" title="Xóa cache">
+                            <i class="fas fa-broom"></i>
+                        </button>
+                        <button class="action-btn logout-btn" id="logout-btn" title="Đăng xuất">
+                            <i class="fas fa-sign-out-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="admin-content">
+                <!-- Tab 1: HKD Management -->
+                <div class="tab-content active" id="hkd-list">
+                    <div class="stats-header">
+                        <h2>Quản lý Hộ Kinh Doanh</h2>
+                        <button class="add-hkd-btn" id="add-hkd-btn">
+                            <i class="fas fa-plus-circle"></i> Thêm HKD mới
+                        </button>
+                    </div>
+                    
+                    <div class="stat-cards">
+                        <div class="stat-card primary">
+                            <div class="stat-icon"><i class="fas fa-users"></i></div>
+                            <div class="stat-info">
+                                <p class="stat-label">Tổng số HKD</p>
+                                <p class="stat-value" id="total-hkd">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card success">
+                            <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                            <div class="stat-info">
+                                <p class="stat-label">Đang hoạt động</p>
+                                <p class="stat-value" id="active-hkd">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card warning">
+                            <div class="stat-icon"><i class="fas fa-shopping-cart"></i></div>
+                            <div class="stat-info">
+                                <p class="stat-label">Tổng đơn hàng</p>
+                                <p class="stat-value" id="total-orders">0</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="search-container">
+                        <input type="text" id="hkd-search-input" class="search-input" placeholder="Tìm kiếm HKD theo tên, số điện thoại...">
+                        <button id="search-btn" class="search-btn">
+                            <i class="fas fa-search"></i> Tìm kiếm
+                        </button>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="hkd-table">
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Tên HKD</th>
+                                    <th>Số điện thoại</th>
+                                    <th>Địa chỉ</th>
+                                    <th>Số sản phẩm</th>
+                                    <th>Số đơn hàng</th>
+                                    <th>Trạng thái</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hkd-table-body">
+                                <tr>
+                                    <td colspan="8" class="empty-state">
+                                        <div class="loading-spinner"></div>
+                                        <p>Đang tải dữ liệu HKD...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Import Section -->
+                <div class="tab-content" id="import-section">
+                    <div class="import-container">
+                        <div class="import-header">
+                            <h2><i class="fas fa-file-import"></i> Import Sản phẩm từ Excel</h2>
+                            <div class="import-actions">
+                                <button class="action-btn-main" id="download-template">
+                                    <i class="fas fa-download"></i> Mẫu Excel
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Upload Area -->
+                        <div class="upload-area">
+                            <div class="upload-icon">
+                                <i class="fas fa-file-excel"></i>
+                            </div>
+                            <h3>Kéo thả file Excel vào đây</h3>
+                            <p>Hoặc click để chọn file</p>
+                            <input type="file" id="excel-file" accept=".xlsx, .xls" hidden>
+                            <button class="upload-btn" onclick="document.getElementById('excel-file').click()">
+                                <i class="fas fa-folder-open"></i> Chọn file
+                            </button>
+                            <div class="file-info" id="file-info">
+                                Chưa có file nào được chọn
+                            </div>
+                        </div>
+
+                        <!-- Preview Section -->
+                        <div class="preview-section">
+                            <div class="preview-header">
+                                <h3>Xem trước dữ liệu</h3>
+                                <div class="preview-stats">
+                                    <span id="total-products">0 sản phẩm</span>
+                                    <span id="total-categories">0 danh mục</span>
+                                </div>
+                            </div>
+                            
+                            <div class="table-wrapper">
+                                <table class="preview-table">
+                                    <thead>
+                                        <tr>
+                                            <th>STT</th>
+                                            <th>Danh mục</th>
+                                            <th>Tên sản phẩm</th>
+                                            <th>Mã SP</th>
+                                            <th>ĐVT</th>
+                                            <th>Đơn giá</th>
+                                            <th>Thành tiền</th>
+                                            <th>Ghi chú</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="preview-table-body">
+                                        <tr>
+                                            <td colspan="8" class="empty-state">
+                                                <div class="empty-icon">📊</div>
+                                                <p>Chưa có dữ liệu để xem trước</p>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Assign HKD Section -->
+                        <div class="assign-section">
+                            <div class="assign-form">
+                                <h3>Gán sản phẩm cho Hộ Kinh Doanh</h3>
+                                
+                                <div class="form-group">
+                                    <label for="hkd-select">Chọn HKD:</label>
+                                    <select id="hkd-select" class="form-control">
+                                        <option value="">-- Chọn HKD --</option>
+                                        <!-- HKD sẽ được load bằng JS -->
+                                    </select>
+                                    <div class="hkd-info" id="hkd-info" style="display: none;">
+                                        <p><strong>Tên:</strong> <span id="hkd-name">-</span></p>
+                                        <p><strong>SĐT:</strong> <span id="hkd-phone">-</span></p>
+                                        <p><strong>Địa chỉ:</strong> <span id="hkd-address">-</span></p>
+                                        <p><strong>Số SP hiện có:</strong> <span id="hkd-product-count">0</span></p>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Phương thức import:</label>
+                                    <div class="radio-group">
+                                        <label>
+                                            <input type="radio" name="import-mode" value="replace" checked>
+                                            Thay thế toàn bộ sản phẩm cũ
+                                        </label>
+                                        <label>
+                                            <input type="radio" name="import-mode" value="append">
+                                            Thêm vào sản phẩm hiện có
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button class="btn btn-secondary" id="cancel-import">
+                                        <i class="fas fa-times"></i> Hủy
+                                    </button>
+                                    <button class="btn btn-primary" id="start-import" disabled>
+                                        <i class="fas fa-upload"></i> Bắt đầu Import
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Reports Section -->
+                <div class="tab-content" id="reports-section">
+                    <div class="reports-container">
+                        <div class="reports-header">
+                            <h2 id="report-title">Báo cáo & Thống kê</h2>
+                            <div class="reports-controls">
+                                <div class="date-range-picker">
+                                    <label for="start-date">Từ ngày:</label>
+                                    <input type="date" id="start-date">
+                                    <label for="end-date">Đến ngày:</label>
+                                    <input type="date" id="end-date">
+                                    <button id="filter-btn" class="btn btn-primary">Lọc</button>
+                                </div>
+                                <div class="export-buttons">
+                                    <button id="export-excel-btn" class="btn btn-success">
+                                        <i class="fas fa-file-excel"></i> Excel
+                                    </button>
+                                    <button id="export-pdf-btn" class="btn btn-danger">
+                                        <i class="fas fa-file-pdf"></i> PDF
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+<!-- Trong phần reports-section, sau h2 -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h2 id="report-list-title">Danh sách Đơn hàng: <span id="hkd-name-display">Toàn bộ HKD</span></h2>
+    <button id="back-to-all-reports" class="btn btn-secondary" style="display: none;">
+        <i class="fas fa-arrow-left"></i> Xem tất cả HKD
+    </button>
+</div>
+                        <div class="report-stats-cards" id="report-stats-cards">
+                            <!-- Stats will be populated here -->
+                        </div>
+
+                        <div class="report-list-container">
+                            <h2 id="report-list-title">Danh sách Đơn hàng: <span id="hkd-name-display">Toàn bộ HKD</span></h2>
+                            <div class="table-wrapper">
+                                <table class="report-table" id="report-table">
+                                    <thead>
+                                        <tr>
+                                            <th>STT</th>
+                                            <th>HKD</th>
+                                            <th>Khách hàng</th>
+                                            <th>Tổng tiền</th>
+                                            <th>Ngày tạo</th>
+                                            <th>Chi tiết</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="report-table-body">
+                                        <tr>
+                                            <td colspan="6" class="empty-state">
+                                                <div class="loading-spinner"></div>
+                                                <p>Đang tải dữ liệu báo cáo...</p>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Settings -->
+                <div class="tab-content" id="settings">
+                    <div class="settings-container">
+                        <h2><i class="fas fa-cog"></i> Cài đặt hệ thống</h2>
+                        <div class="settings-content">
+                            <div class="settings-section">
+                                <h3>Thông tin hệ thống</h3>
+                                <p>Phiên bản: 2.0.0</p>
+                                <p>Ngày cập nhật: 2024</p>
+                            </div>
+                            <div class="settings-section">
+                                <h3>Quản lý dữ liệu</h3>
+                                <button class="btn btn-warning" id="backup-data-btn">
+                                    <i class="fas fa-database"></i> Sao lưu dữ liệu
+                                </button>
+                                <button class="btn btn-danger" id="reset-data-btn">
+                                    <i class="fas fa-trash-alt"></i> Đặt lại dữ liệu
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="firebase-config.js"></script>
+    <script src="utils.js"></script>
+    <script src="auth.js"></script>
+    <script src="database.js"></script>
+    <script src="admin-core.js"></script>
+    <script src="admin-hkd.js"></script>
+    <script src="invoice-detail.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.3.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.14/jspdf.plugin.autotable.min.js"></script>
+    
+    <!-- Integrated Manager Scripts -->
+    <script src="integrated-manager.js"></script>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // Cập nhật tên người dùng nếu có element
+        const userNameEl = document.getElementById('user-name');
+        const welcomeUserEl = document.getElementById('welcome-user');
+        const userAvatarEl = document.getElementById('user-avatar');
+        
+        const adminName = localStorage.getItem('admin_username') || 'Admin';
+        
+        if (userNameEl) userNameEl.textContent = adminName;
+        if (welcomeUserEl) welcomeUserEl.textContent = adminName;
+        if (userAvatarEl) userAvatarEl.textContent = adminName.charAt(0).toUpperCase();
+        
+        console.log('Admin name updated:', adminName);
+    });
+</script>
+</body>
+</html>

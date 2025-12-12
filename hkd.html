@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bán hàng HKD</title>
+    <link rel="stylesheet" href="css/hkd.css">
+    <!-- Thêm CSS cho login -->
+    <style>
+        /* Login Container */
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        
+        .login-box {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 30px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .admin-icon {
+            font-size: 50px;
+            margin-bottom: 15px;
+        }
+        
+        .login-header h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        
+        .login-header p {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        
+        .login-body {
+            margin-bottom: 25px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 14px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+            background: #f8f9fa;
+        }
+        
+        .form-group input:focus {
+            border-color: #667eea;
+            background: white;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .password-container {
+            position: relative;
+        }
+        
+        .toggle-password {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        
+        .login-message {
+            margin: 15px 0;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            text-align: center;
+            display: none;
+        }
+        
+        .login-message.error {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ffcdd2;
+            display: block;
+        }
+        
+        .login-message.success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #c8e6c9;
+            display: block;
+        }
+        
+        .login-button {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .login-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .login-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .login-footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #777;
+            font-size: 14px;
+        }
+        
+        .back-home {
+            display: inline-block;
+            margin-top: 10px;
+            color: #667eea;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        
+        .back-home:hover {
+            text-decoration: underline;
+        }
+    </style>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- LOGIN SECTION (chỉ hiện khi chưa đăng nhập) -->
+    <div id="login-section" class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <div class="admin-icon">🏪</div>
+                <h1>Hộ Kinh Doanh</h1>
+                <p>Đăng nhập hệ thống bán hàng</p>
+            </div>
+            
+            <div class="login-body">
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="phone">
+                            <i class="fas fa-phone"></i> Số điện thoại
+                        </label>
+                        <input type="tel" id="phone" placeholder="Nhập số điện thoại đăng ký" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">
+                            <i class="fas fa-lock"></i> Mật khẩu
+                        </label>
+                        <div class="password-container">
+                            <input type="password" id="password" placeholder="Nhập mật khẩu" required>
+                            <button type="button" class="toggle-password">
+                                <i class="fas fa-eye-slash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="login-message" class="login-message"></div>
+                    
+                    <button type="submit" id="login-btn" class="login-button">
+                        <i class="fas fa-sign-in-alt"></i> <span>Đăng nhập</span>
+                    </button>
+                </form>
+            </div>
+            
+            <div class="login-footer">
+                <p>&copy; 2024 Hệ thống bán hàng HKD. All rights reserved.</p>
+                <a href="index.html" class="back-home">
+                    <i class="fas fa-arrow-left"></i> Quay lại trang chủ
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- APP SECTION (chỉ hiện khi đã đăng nhập) -->
+    <div id="app-section" style="display: none;">
+        <!-- HEADER -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="store-name" id="hkd-store-name">Cửa hàng của tôi</div>
+                <div class="connection-status">
+                    <div class="status-dot" id="connection-status"></div>
+                    <span id="connection-text">Đang kết nối...</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="header-icon" id="sync-status" title="Đồng bộ">
+                    <i class="fas fa-sync-alt"></i>
+                </div>
+                <div class="header-icon" id="logout-btn" title="Đăng xuất">
+                    <i class="fas fa-sign-out-alt"></i>
+                </div>
+            </div>
+        </header>
+        
+        <!-- FAB BUTTONS -->
+        <div class="fab-container">
+            <button class="fab-btn history" id="history-fab" title="Lịch sử">
+                <i class="fas fa-history"></i>
+                <span class="fab-tooltip">Lịch sử bán hàng</span>
+            </button>
+            <button class="fab-btn revenue" id="revenue-fab" title="Doanh thu">
+                <i class="fas fa-chart-line"></i>
+                <span class="fab-tooltip">Thống kê doanh thu</span>
+            </button>
+            <button class="fab-btn add" id="add-product-fab" title="Thêm sản phẩm">
+                <i class="fas fa-plus"></i>
+                <span class="fab-tooltip">Thêm sản phẩm mới</span>
+            </button>
+        </div>
+        
+        <!-- MAIN CONTENT -->
+        <main class="main-content">
+            <!-- CATEGORIES -->
+            <section class="categories-section">
+                <div class="section-title">
+                    <span>Danh mục sản phẩm</span>
+                </div>
+                <div class="categories-grid" id="categories-list">
+                    <!-- Categories will be loaded dynamically -->
+                </div>
+            </section>
+            
+            <!-- PRODUCTS -->
+            <section class="products-section">
+                <div class="section-title">
+                    <span>Sản phẩm</span>
+                    <span id="product-count">(0 sản phẩm)</span>
+                </div>
+                <div class="products-grid" id="products-grid">
+                    <!-- Products will be loaded dynamically -->
+                </div>
+            </section>
+        </main>
+        
+        <!-- CHECKOUT FOOTER -->
+        <footer class="checkout-footer">
+            <div class="cart-info">
+                <div class="cart-summary">
+                    <div class="cart-items-count" id="cart-count">0</div>
+                    <div class="cart-total" id="cart-total">0 đ</div>
+                </div>
+            </div>
+            <div class="footer-actions">
+                <button class="footer-btn clear" id="clear-cart-btn" title="Xóa giỏ hàng">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <button class="footer-btn checkout" id="checkout-btn" title="Thanh toán">
+                    <i class="fas fa-shopping-cart"></i>
+                </button>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- SCRIPTS -->
+    <script src="firebase-config.js"></script>
+    <script src="utils.js"></script>
+    <script src="database.js"></script>
+    <script src="auth.js"></script>
+    <script src="hkd.js"></script>
+
+    
+    <script>
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // Kiểm tra trạng thái đăng nhập
+            const isLoggedIn = window.authManager?.checkAuthStatus() || false;
+            const loginSection = document.getElementById('login-section');
+            const appSection = document.getElementById('app-section');
+            
+            console.log('Login status:', isLoggedIn);
+            
+            if (isLoggedIn) {
+                // Đã đăng nhập: hiện app, ẩn login
+                if (loginSection) loginSection.style.display = 'none';
+                if (appSection) appSection.style.display = 'block';
+                
+                // Khởi tạo HKD App
+                console.log('Initializing HKD App...');
+                setTimeout(() => {
+                    if (typeof window.hkdManager === 'undefined') {
+                        window.hkdManager = new HKDManager();
+                    }
+                }, 500);
+                
+                // Logout button
+                document.getElementById('logout-btn').addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    if (confirm('Bạn có chắc muốn đăng xuất?')) {
+                        utils.showLoading('Đang đăng xuất...');
+                        
+                        // Gọi logout từ authManager
+                        if (window.authManager) {
+                            window.authManager.logout('hkd');
+                        }
+                        
+                        // Xóa giỏ hàng local
+                        localStorage.removeItem('current_cart');
+                        
+                        setTimeout(() => {
+                            utils.hideLoading();
+                            utils.showNotification('Đã đăng xuất thành công', 'success');
+                            
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 500);
+                        }, 300);
+                    }
+                });
+                
+                // Sync status button
+                document.getElementById('sync-status').addEventListener('click', function() {
+                    if (window.dbManager && navigator.onLine) {
+                        utils.showLoading('Đang đồng bộ dữ liệu...');
+                        window.dbManager.syncPendingSales().then(count => {
+                            utils.hideLoading();
+                            utils.showNotification(`Đã đồng bộ ${count} đơn hàng`, 'success');
+                        });
+                    } else {
+                        utils.showNotification('Không có kết nối mạng', 'warning');
+                    }
+                });
+                
+                // Update cart count on load
+                function updateCartDisplay() {
+                    try {
+                        const cart = JSON.parse(localStorage.getItem('current_cart')) || { items: [] };
+                        const cartCount = document.getElementById('cart-count');
+                        const cartTotal = document.getElementById('cart-total');
+                        
+                        if (cartCount) {
+                            const totalItems = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+                            cartCount.textContent = totalItems;
+                        }
+                        
+                        if (cartTotal) {
+                            cartTotal.textContent = utils.formatCurrency(cart.subtotal || 0);
+                        }
+                    } catch (e) {
+                        console.error('Error updating cart display:', e);
+                    }
+                }
+                
+                // Initial update
+                updateCartDisplay();
+                
+                // Listen for cart updates
+                window.addEventListener('storage', function(e) {
+                    if (e.key === 'current_cart') {
+                        updateCartDisplay();
+                    }
+                });
+                
+                // Update product count
+                function updateProductCount() {
+                    try {
+                        const hkdId = window.authManager?.getCurrentHKD();
+                        if (hkdId) {
+                            const products = JSON.parse(localStorage.getItem(`products_${hkdId}`)) || {};
+                            const productCount = document.getElementById('product-count');
+                            if (productCount) {
+                                const count = Object.keys(products).length;
+                                productCount.textContent = `(${count} sản phẩm)`;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error updating product count:', e);
+                    }
+                }
+                
+                // Initial product count update
+                setTimeout(updateProductCount, 1000);
+                
+                // Auto-update product count periodically
+                setInterval(updateProductCount, 5000);
+                
+            } else {
+                // Chưa đăng nhập: hiện login, ẩn app
+                if (loginSection) loginSection.style.display = 'flex';
+                if (appSection) appSection.style.display = 'none';
+                
+                // Xử lý form login
+                const loginForm = document.getElementById('login-form');
+                const loginBtn = document.getElementById('login-btn');
+                const messageEl = document.getElementById('login-message');
+                const togglePasswordBtn = document.querySelector('.toggle-password');
+                
+                // Toggle password visibility
+                if (togglePasswordBtn) {
+                    togglePasswordBtn.addEventListener('click', function() {
+                        const passwordInput = document.getElementById('password');
+                        const icon = this.querySelector('i');
+                        
+                        if (passwordInput.type === 'password') {
+                            passwordInput.type = 'text';
+                            icon.classList.remove('fa-eye-slash');
+                            icon.classList.add('fa-eye');
+                        } else {
+                            passwordInput.type = 'password';
+                            icon.classList.remove('fa-eye');
+                            icon.classList.add('fa-eye-slash');
+                        }
+                    });
+                }
+                
+                // Xử lý submit form
+                if (loginForm) {
+                    loginForm.addEventListener('submit', async function(e) {
+                        e.preventDefault();
+                        
+                        const phone = document.getElementById('phone').value.trim();
+                        const password = document.getElementById('password').value.trim();
+                        
+                        if (!phone || !password) {
+                            showMessage('Vui lòng nhập đầy đủ thông tin', 'error');
+                            return;
+                        }
+                        
+                        // Hiện loading
+                        loginBtn.disabled = true;
+                        loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Đang đăng nhập...</span>';
+                        
+                        try {
+                            const result = await window.authManager.login(phone, password);
+                            
+                            if (result.success) {
+                                showMessage('Đăng nhập thành công! Đang chuyển hướng...', 'success');
+                                
+                                // Reload trang sau 1 giây
+                                setTimeout(() => {
+                                    window.location.reload();
+                                }, 1000);
+                            } else {
+                                showMessage(result.error || 'Số điện thoại hoặc mật khẩu không đúng', 'error');
+                                loginBtn.disabled = false;
+                                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> <span>Đăng nhập</span>';
+                            }
+                        } catch (error) {
+                            console.error('Login error:', error);
+                            showMessage('Lỗi hệ thống. Vui lòng thử lại.', 'error');
+                            loginBtn.disabled = false;
+                            loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> <span>Đăng nhập</span>';
+                        }
+                    });
+                    
+                    function showMessage(message, type) {
+                        if (messageEl) {
+                            messageEl.textContent = message;
+                            messageEl.className = 'login-message';
+                            messageEl.classList.add(type);
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
