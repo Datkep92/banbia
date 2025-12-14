@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đăng nhập hệ thống</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="login-card">
+            <div class="login-header">
+                <button class="back-btn" onclick="goBack()">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h1 id="loginTitle">Đăng nhập</h1>
+            </div>
+            
+            <div class="login-type-selector">
+                <button class="type-btn active" onclick="switchLoginType('admin')">
+                    <i class="fas fa-user-shield"></i> Admin
+                </button>
+                <button class="type-btn" onclick="switchLoginType('hkd')">
+                    <i class="fas fa-user-tie"></i> HKD
+                </button>
+            </div>
+            
+            <form id="loginForm" class="login-form">
+                <div class="form-group" id="phoneGroup">
+                    <label for="phone">Số điện thoại:</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-phone"></i>
+                        <input type="tel" id="phone" placeholder="Nhập số điện thoại" required>
+                    </div>
+                </div>
+                
+                <div class="form-group" id="hkdNameGroup" style="display: none;">
+                    <label for="hkdName">Tên HKD:</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-store"></i>
+                        <input type="text" id="hkdName" placeholder="Nhập tên HKD">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Mật khẩu:</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="password" placeholder="Nhập mật khẩu" required>
+                        <button type="button" class="toggle-password" onclick="togglePassword()">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-sign-in-alt"></i> Đăng nhập
+                    </button>
+                </div>
+            </form>
+            
+            <div class="login-info">
+                <p><strong>Thông tin đăng nhập mặc định:</strong></p>
+                <div id="defaultAdminInfo">
+                    <p>Admin: <code>admin / 123123</code></p>
+                </div>
+                <div id="defaultHKDInfo" style="display: none;">
+                    <p>HKD: Sử dụng SĐT và mật khẩu do Admin cấp</p>
+                </div>
+            </div>
+            
+            <div class="login-footer">
+                <p>Phiên bản 1.0 - Hệ thống bán hàng Firebase</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Thêm phần scripts ở cuối body -->
+<!-- Thêm phần scripts ở cuối body -->
+<script src="js/firebase-config.js"></script>
+<script src="js/indexedDB.js"></script>
+<script src="js/sync-manager.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/init.js"></script>
+<script src="js/init.js"></script>
+
+    <script>
+        // Xác định loại đăng nhập từ URL
+        const urlParams = new URLSearchParams(window.location.search);
+        let loginType = urlParams.get('type') || 'admin';
+        
+        function initLoginPage() {
+            switchLoginType(loginType);
+            
+            // Xử lý form đăng nhập
+            document.getElementById('loginForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                handleLogin();
+            });
+        }
+        
+        function switchLoginType(type) {
+            loginType = type;
+            
+            // Cập nhật UI
+            document.querySelectorAll('.type-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            document.querySelector(`.type-btn:nth-child(${type === 'admin' ? 1 : 2})`).classList.add('active');
+            
+            // Cập nhật tiêu đề
+            document.getElementById('loginTitle').textContent = 
+                type === 'admin' ? 'Đăng nhập Admin' : 'Đăng nhập HKD';
+            
+            // Hiển thị/ẩn trường HKD
+            document.getElementById('phoneGroup').style.display = 'block';
+            document.getElementById('hkdNameGroup').style.display = type === 'hkd' ? 'block' : 'none';
+            
+            // Cập nhật thông tin mặc định
+            document.getElementById('defaultAdminInfo').style.display = 
+                type === 'admin' ? 'block' : 'none';
+            document.getElementById('defaultHKDInfo').style.display = 
+                type === 'hkd' ? 'block' : 'none';
+        }
+        
+        function goBack() {
+            window.location.href = 'index.html';
+        }
+        
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleBtn = document.querySelector('.toggle-password i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleBtn.className = 'fas fa-eye-slash';
+            } else {
+                passwordInput.type = 'password';
+                toggleBtn.className = 'fas fa-eye';
+            }
+        }
+        
+        async function handleLogin() {
+            const phone = document.getElementById('phone').value;
+            const password = document.getElementById('password').value;
+            const hkdName = loginType === 'hkd' ? document.getElementById('hkdName').value : '';
+            
+            try {
+                if (loginType === 'admin') {
+                    // Đăng nhập admin
+                    const success = await authenticateAdmin(phone, password);
+                    if (success) {
+                        localStorage.setItem('lastLogin', 'admin');
+                        window.location.href = 'admin.html';
+                    }
+                } else {
+                    // Đăng nhập HKD
+                    const success = await authenticateHKD(phone, password, hkdName);
+                    if (success) {
+                        localStorage.setItem('lastLogin', 'hkd');
+                        window.location.href = 'hkd.html';
+                    }
+                }
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+        
+        function showError(message) {
+            // Tạo thông báo lỗi
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.innerHTML = `
+                <i class="fas fa-exclamation-circle"></i>
+                <span>${message}</span>
+                <button onclick="this.parentElement.remove()">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            
+            // Thêm vào form
+            const form = document.getElementById('loginForm');
+            const existingError = form.querySelector('.error-message');
+            if (existingError) {
+                existingError.remove();
+            }
+            form.prepend(errorDiv);
+        }
+        
+        // Khởi tạo trang
+        window.onload = initLoginPage;
+    </script>
+</body>
+</html>

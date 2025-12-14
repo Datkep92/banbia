@@ -3,144 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ Thống Quản Lý Bán Hàng</title>
-    <link rel="stylesheet" href="css/index.css">
+    <title>Hệ thống bán hàng</title>
     <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <header class="index-header">
-        <h1><i class="fas fa-store"></i> Hệ Thống Quản Lý Bán Hàng</h1>
-        <p>Giải pháp toàn diện cho Hộ Kinh Doanh - Quản lý đơn giản, bán hàng hiệu quả</p>
-    </header>
-    
-    <main class="index-main">
-        <div class="hero-section">
-            <h2 class="hero-title">Quản lý bán hàng thông minh</h2>
-            <p class="hero-subtitle">
-                Hệ thống giúp bạn quản lý HKD, theo dõi doanh thu, bán hàng nhanh chóng 
-                và hoạt động ngay cả khi không có kết nối internet
-            </p>
-            
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-store"></i>
-                    </div>
-                    <h3>Quản lý HKD</h3>
-                    <p>Tạo và quản lý thông tin Hộ Kinh Doanh dễ dàng, khoa học</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-shopping-cart"></i>
-                    </div>
-                    <h3>Bán hàng nhanh</h3>
-                    <p>Giao diện bán hàng trực quan, thanh toán chỉ với vài thao tác</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-chart-line"></i>
-                    </div>
-                    <h3>Báo cáo doanh thu</h3>
-                    <p>Theo dõi doanh thu, phân tích hiệu quả kinh doanh chi tiết</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="fas fa-wifi-slash"></i>
-                    </div>
-                    <h3>Hoạt động Offline</h3>
-                    <p>Làm việc không cần internet, tự động đồng bộ khi có mạng</p>
-                </div>
+    <div class="container">
+        <div class="welcome-card">
+            <div class="logo">
+                <i class="fas fa-store-alt"></i>
+                <h1>Hệ thống bán hàng</h1>
             </div>
             
-            <div class="access-options">
-                <div class="access-card">
-                    <div class="access-icon">
+            <div class="welcome-text">
+                <p>Chào mừng bạn đến với hệ thống quản lý bán hàng tích hợp Firebase</p>
+            </div>
+            
+            <div class="login-options">
+                <div class="option-card" onclick="goToAdmin()">
+                    <div class="option-icon">
                         <i class="fas fa-user-shield"></i>
                     </div>
-                    <h3>Quản trị viên</h3>
-                    <p>Quản lý toàn bộ hệ thống, HKD và xem báo cáo</p>
-                    <a href="admin.html" class="access-btn">
-                        <i class="fas fa-sign-in-alt"></i>
-                        Truy cập Admin
-                    </a>
+                    <div class="option-content">
+                        <h3>Đăng nhập Admin</h3>
+                        <p>Quản lý hệ thống, HKD và hóa đơn</p>
+                    </div>
+                    <div class="option-arrow">
+                        <i class="fas fa-chevron-right"></i>
+                    </div>
                 </div>
                 
-                <div class="access-card hkd">
-                    <div class="access-icon">
-                        <i class="fas fa-store"></i>
+                <div class="option-card" onclick="goToHKD()">
+                    <div class="option-icon">
+                        <i class="fas fa-user-tie"></i>
                     </div>
-                    <h3>Hộ Kinh Doanh</h3>
-                    <p>Đăng nhập để bán hàng và quản lý cửa hàng</p>
-                    <a href="hkd.html" class="access-btn hkd">
-                        <i class="fas fa-sign-in-alt"></i>
-                        Đăng nhập HKD
-                    </a>
+                    <div class="option-content">
+                        <h3>Đăng nhập HKD</h3>
+                        <p>Bán hàng và quản lý đơn hàng</p>
+                    </div>
+                    <div class="option-arrow">
+                        <i class="fas fa-chevron-right"></i>
+                    </div>
                 </div>
             </div>
-        </div>
-    </main>
-    
-    <footer class="index-footer">
-        <p class="footer-text">© 2024 Hệ Thống Quản Lý Bán Hàng - Phiên bản 1.0.0</p>
-        <div class="footer-links">
-            <a href="#" class="footer-link"><i class="fas fa-question-circle"></i> Hướng dẫn sử dụng</a>
-            <a href="#" class="footer-link"><i class="fas fa-headset"></i> Liên hệ hỗ trợ</a>
-            <a href="#" class="footer-link"><i class="fas fa-shield-alt"></i> Chính sách bảo mật</a>
-            <a href="#" class="footer-link"><i class="fas fa-file-contract"></i> Điều khoản dịch vụ</a>
-        </div>
-    </footer>
-
-    <!-- Load scripts -->
-    <script src="firebase-config.js"></script>
-    <script src="database.js"></script>
-    <script src="utils.js"></script>
-    
-    <script>
-        // Tạo instance utils
-        const utils = new Utils();
-        
-        // Kiểm tra kết nối mạng
-        window.addEventListener('load', () => {
-            if (!navigator.onLine) {
-                utils.showNotification('Bạn đang ở chế độ offline. Một số tính năng có thể bị hạn chế.', 'warning');
-            }
-        });
-        
-        // Lắng nghe sự kiện online/offline
-        window.addEventListener('online', () => {
-            utils.showNotification('Đã kết nối lại mạng', 'success');
-        });
-        
-        window.addEventListener('offline', () => {
-            utils.showNotification('Mất kết nối mạng', 'warning');
-        });
-        
-        // Kiểm tra nếu đã đăng nhập admin thì tự động chuyển
-        window.addEventListener('load', () => {
-            const adminToken = localStorage.getItem('admin_token');
-            const loginTime = localStorage.getItem('admin_login_time');
             
-            if (adminToken === 'admin_authenticated' && loginTime) {
-                const loginDate = new Date(loginTime);
-                const now = new Date();
-                const hoursDiff = (now - loginDate) / (1000 * 60 * 60);
-                
-                if (hoursDiff < 24) {
-                    // Đã đăng nhập admin, tự động chuyển đến admin dashboard
-                    setTimeout(() => {
-                        window.location.href = 'admin.html';
-                    }, 500);
-                }
+            <div class="features">
+                <h3>Tính năng nổi bật:</h3>
+                <ul>
+                    <li><i class="fas fa-check-circle"></i> Đồng bộ dữ liệu thời gian thực</li>
+                    <li><i class="fas fa-check-circle"></i> Hoạt động offline với IndexedDB</li>
+                    <li><i class="fas fa-check-circle"></i> Quản lý nhiều HKD</li>
+                    <li><i class="fas fa-check-circle"></i> Nhập hàng hóa từ Excel</li>
+                    <li><i class="fas fa-check-circle"></i> Bán hàng nhanh trên mobile</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function goToAdmin() {
+            window.location.href = "login.html?type=admin";
+        }
+        
+        function goToHKD() {
+            window.location.href = "login.html?type=hkd";
+        }
+        
+        // Lưu trạng thái đăng nhập trước đó
+        window.onload = function() {
+            const lastLogin = localStorage.getItem('lastLogin');
+            if (lastLogin === 'admin') {
+                document.querySelector('.option-card:nth-child(1)').classList.add('highlight');
+            } else if (lastLogin === 'hkd') {
+                document.querySelector('.option-card:nth-child(2)').classList.add('highlight');
             }
-        });
+        };
     </script>
 </body>
 </html>
