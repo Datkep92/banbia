@@ -6,122 +6,6 @@
     <title>Đăng nhập hệ thống</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        /* CSS inline để đảm bảo hiển thị đúng */
-        .hidden {
-            display: none !important;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-        
-        .toast-notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: white;
-            border-radius: 8px;
-            padding: 12px 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 9999;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transform: translateX(120%);
-            transition: transform 0.3s ease;
-        }
-        
-        .toast-notification.show {
-            transform: translateX(0);
-        }
-        
-        .toast-success {
-            border-left: 4px solid #10b981;
-        }
-        
-        .toast-error {
-            border-left: 4px solid #ef4444;
-        }
-        
-        .toast-info {
-            border-left: 4px solid #3b82f6;
-        }
-        
-        #loadingOverlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(255,255,255,0.8);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 9998;
-        }
-        
-        #loadingOverlay.show {
-            display: flex;
-        }
-        
-        .loading-spinner {
-            text-align: center;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
-        
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #4a6ee0;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 15px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .loading-text {
-            color: #333;
-            font-weight: 500;
-        }
-        
-        /* Error message styling */
-        .error-message {
-            background: #fee;
-            border: 1px solid #fcc;
-            border-radius: 6px;
-            padding: 10px 15px;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #c00;
-            font-size: 14px;
-        }
-        
-        .error-message i {
-            font-size: 16px;
-        }
-        
-        .error-message button {
-            background: none;
-            border: none;
-            color: #999;
-            cursor: pointer;
-            margin-left: auto;
-            padding: 0;
-        }
-        
-        .error-message button:hover {
-            color: #666;
-        }
-    </style>
 </head>
 <body>
     <div class="container">
@@ -132,8 +16,14 @@
                 </button>
                 <h1 id="loginTitle">Đăng nhập</h1>
             </div>
-            
-            <!-- Selector loại đăng nhập -->
+            <!-- Thêm nút "Đăng ký HKD" vào login form -->
+<div class="register-link text-center mt-4" id="registerLink">
+    <p>Chưa có tài khoản HKD? 
+        <a href="#" onclick="showRegisterForm()" class="register-link-btn">
+            <i class="fas fa-user-plus"></i> Đăng ký ngay
+        </a>
+    </p>
+</div>
             <div class="login-type-selector">
                 <button class="type-btn active" onclick="switchLoginType('admin')">
                     <i class="fas fa-user-shield"></i> Admin
@@ -143,7 +33,6 @@
                 </button>
             </div>
             
-            <!-- Form đăng nhập -->
             <form id="loginForm" class="login-form">
                 <div class="form-group" id="phoneGroup">
                     <label for="phone">Số điện thoại:</label>
@@ -151,6 +40,10 @@
                         <i class="fas fa-phone"></i>
                         <input type="tel" id="phone" placeholder="Nhập số điện thoại" required>
                     </div>
+                </div>
+                
+                <div class="form-group" id="hkdNameGroup" style="display: none;">
+                    
                 </div>
                 
                 <div class="form-group">
@@ -171,16 +64,6 @@
                 </div>
             </form>
             
-            <!-- Link đăng ký -->
-            <div class="register-link text-center mt-4" id="registerLink">
-                <p>Chưa có tài khoản HKD? 
-                    <a href="#" class="register-link-btn" id="registerLinkBtn">
-                        <i class="fas fa-user-plus"></i> Đăng ký ngay
-                    </a>
-                </p>
-            </div>
-            
-            <!-- Thông tin đăng nhập mặc định -->
             <div class="login-info">
                 <p><strong>Thông tin đăng nhập mặc định:</strong></p>
                 <div id="defaultAdminInfo">
@@ -191,177 +74,137 @@
                 </div>
             </div>
             
-            <!-- Form đăng ký (ẩn ban đầu) -->
-            <div class="register-section hidden" id="registerSection">
-                <hr>
-                <h5 class="text-center mb-3">Đăng ký HKD mới</h5>
-                
-                <form id="registerForm" class="register-form">
-                    <div class="form-group">
-                        <label for="registerName">Tên HKD *</label>
-                        <div class="input-with-icon">
-                            <i class="fas fa-store"></i>
-                            <input type="text" id="registerName" placeholder="Nhập tên cửa hàng" required>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="registerPhone">Số điện thoại *</label>
-                        <div class="input-with-icon">
-                            <i class="fas fa-phone"></i>
-                            <input type="tel" id="registerPhone" placeholder="Nhập số điện thoại" required>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="registerAddress">Địa chỉ</label>
-                        <div class="input-with-icon">
-                            <i class="fas fa-map-marker-alt"></i>
-                            <input type="text" id="registerAddress" placeholder="Nhập địa chỉ (tuỳ chọn)">
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="registerPassword">Mật khẩu *</label>
-                        <div class="input-with-icon">
-                            <i class="fas fa-lock"></i>
-                            <input type="password" id="registerPassword" placeholder="Nhập mật khẩu (6+ ký tự)" required>
-                            <button type="button" class="toggle-password" onclick="toggleRegisterPassword()">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="registerConfirmPassword">Xác nhận mật khẩu *</label>
-                        <div class="input-with-icon">
-                            <i class="fas fa-lock"></i>
-                            <input type="password" id="registerConfirmPassword" placeholder="Nhập lại mật khẩu" required>
-                        </div>
-                    </div>
-                    
-                    <div class="form-actions">
-                        <button type="submit" class="btn-success">
-                            <i class="fas fa-user-plus"></i> Đăng ký ngay
-                        </button>
-                        <button type="button" class="btn-secondary" onclick="showLoginForm()">
-                            <i class="fas fa-sign-in-alt"></i> Quay lại đăng nhập
-                        </button>
-                    </div>
-                </form>
-                
-                <div class="register-info mt-3">
-                    <p class="small text-muted">
-                        <i class="fas fa-info-circle"></i> 
-                        Sau khi đăng ký, bạn có thể đăng nhập ngay bằng SĐT và mật khẩu đã đăng ký.
-                    </p>
-                </div>
-            </div>
-            
-            <!-- Footer -->
             <div class="login-footer">
                 <p>Phiên bản 1.0 - Hệ thống bán hàng Firebase</p>
             </div>
         </div>
     </div>
+<!-- Trong login.html, thêm vào sau login-form -->
+<div class="register-section" id="registerSection" style="display: none;">
+    <hr>
+    <h5 class="text-center mb-3">Đăng ký HKD mới</h5>
+    
+    <form id="registerForm" class="register-form">
+        <div class="form-group">
+            <label for="registerName">Tên HKD *</label>
+            <div class="input-with-icon">
+                <i class="fas fa-store"></i>
+                <input type="text" id="registerName" placeholder="Nhập tên cửa hàng" required>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="registerPhone">Số điện thoại *</label>
+            <div class="input-with-icon">
+                <i class="fas fa-phone"></i>
+                <input type="tel" id="registerPhone" placeholder="Nhập số điện thoại" required>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="registerAddress">Địa chỉ</label>
+            <div class="input-with-icon">
+                <i class="fas fa-map-marker-alt"></i>
+                <input type="text" id="registerAddress" placeholder="Nhập địa chỉ (tuỳ chọn)">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="registerPassword">Mật khẩu *</label>
+            <div class="input-with-icon">
+                <i class="fas fa-lock"></i>
+                <input type="password" id="registerPassword" placeholder="Nhập mật khẩu (6+ ký tự)" required>
+                <button type="button" class="toggle-password" onclick="toggleRegisterPassword()">
+                    <i class="fas fa-eye"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="registerConfirmPassword">Xác nhận mật khẩu *</label>
+            <div class="input-with-icon">
+                <i class="fas fa-lock"></i>
+                <input type="password" id="registerConfirmPassword" placeholder="Nhập lại mật khẩu" required>
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <button type="submit" class="btn-success">
+                <i class="fas fa-user-plus"></i> Đăng ký ngay
+            </button>
+            <button type="button" class="btn-secondary" onclick="showLoginForm()">
+                <i class="fas fa-sign-in-alt"></i> Quay lại đăng nhập
+            </button>
+        </div>
+    </form>
+    
+    <div class="register-info mt-3">
+        <p class="small text-muted">
+            <i class="fas fa-info-circle"></i> 
+            Sau khi đăng ký, bạn có thể đăng nhập ngay bằng SĐT và mật khẩu đã đăng ký.
+        </p>
+    </div>
+</div>
 
-    <!-- Scripts -->
-    <script src="js/firebase-config.js"></script>
-    <script src="js/indexedDB.js"></script>
-    <script src="js/sync-manager.js"></script>
-    <script src="js/auth.js"></script>
-    <script src="js/utils.js"></script>
-    <script src="js/init.js"></script>
+
+    <!-- Thêm phần scripts ở cuối body -->
+<!-- Thêm phần scripts ở cuối body -->
+<script src="js/firebase-config.js"></script>
+<script src="js/indexedDB.js"></script>
+<script src="js/sync-manager.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/init.js"></script>
+<script src="js/init.js"></script>
 
     <script>
-        // Biến cục bộ trong scope này
-        let loginType = 'admin';
-        let loginPageCurrentUser = null; // Đổi tên để tránh trùng với auth.js
+        // Xác định loại đăng nhập từ URL
+        const urlParams = new URLSearchParams(window.location.search);
+        let loginType = urlParams.get('type') || 'admin';
         
-        // Khởi tạo trang
         function initLoginPage() {
-            // Xác định loại đăng nhập từ URL
-            const urlParams = new URLSearchParams(window.location.search);
-            loginType = urlParams.get('type') || 'admin';
-            
             switchLoginType(loginType);
             
             // Xử lý form đăng nhập
-            const loginForm = document.getElementById('loginForm');
-            if (loginForm) {
-                loginForm.addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    handleLogin();
-                });
-            }
-            
-            // Xử lý form đăng ký
-            const registerForm = document.getElementById('registerForm');
-            if (registerForm) {
-                registerForm.addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    handleRegister(e);
-                });
-            }
-            
-            // Xử lý nút đăng ký
-            const registerLinkBtn = document.getElementById('registerLinkBtn');
-            if (registerLinkBtn) {
-                registerLinkBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    showRegisterForm();
-                });
-            }
-            
-            // Xử lý nút quay lại đăng nhập trong form đăng ký
-            const backToLoginBtn = document.querySelector('#registerForm .btn-secondary');
-            if (backToLoginBtn) {
-                backToLoginBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    showLoginForm();
-                });
-            }
+            document.getElementById('loginForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                handleLogin();
+            });
         }
         
-        // Chuyển đổi loại đăng nhập
         function switchLoginType(type) {
             loginType = type;
             
-            // Cập nhật UI buttons
-            const adminBtn = document.querySelector('.type-btn:nth-child(1)');
-            const hkdBtn = document.querySelector('.type-btn:nth-child(2)');
+            // Cập nhật UI
+            document.querySelectorAll('.type-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
             
-            if (adminBtn && hkdBtn) {
-                adminBtn.classList.toggle('active', type === 'admin');
-                hkdBtn.classList.toggle('active', type === 'hkd');
-            }
+            document.querySelector(`.type-btn:nth-child(${type === 'admin' ? 1 : 2})`).classList.add('active');
             
             // Cập nhật tiêu đề
-            const title = document.getElementById('loginTitle');
-            if (title) {
-                title.textContent = type === 'admin' ? 'Đăng nhập Admin' : 'Đăng nhập HKD';
-            }
+            document.getElementById('loginTitle').textContent = 
+                type === 'admin' ? 'Đăng nhập Admin' : 'Đăng nhập HKD';
+            
+            // Hiển thị/ẩn trường HKD
+            document.getElementById('phoneGroup').style.display = 'block';
+            document.getElementById('hkdNameGroup').style.display = type === 'hkd' ? 'block' : 'none';
             
             // Cập nhật thông tin mặc định
-            const defaultAdmin = document.getElementById('defaultAdminInfo');
-            const defaultHKD = document.getElementById('defaultHKDInfo');
-            
-            if (defaultAdmin) defaultAdmin.style.display = type === 'admin' ? 'block' : 'none';
-            if (defaultHKD) defaultHKD.style.display = type === 'hkd' ? 'block' : 'none';
+            document.getElementById('defaultAdminInfo').style.display = 
+                type === 'admin' ? 'block' : 'none';
+            document.getElementById('defaultHKDInfo').style.display = 
+                type === 'hkd' ? 'block' : 'none';
         }
         
-        // Quay lại trang chính
         function goBack() {
             window.location.href = 'index.html';
         }
         
-        // Hiển thị/ẩn mật khẩu
         function togglePassword() {
             const passwordInput = document.getElementById('password');
             const toggleBtn = document.querySelector('.toggle-password i');
             
-            if (!passwordInput || !toggleBtn) return;
-            
             if (passwordInput.type === 'password') {
                 passwordInput.type = 'text';
                 toggleBtn.className = 'fas fa-eye-slash';
@@ -371,31 +214,10 @@
             }
         }
         
-        // Hiển thị/ẩn mật khẩu đăng ký
-        function toggleRegisterPassword() {
-            const passwordInput = document.getElementById('registerPassword');
-            const toggleBtn = document.querySelector('#registerForm .toggle-password i');
-            
-            if (!passwordInput || !toggleBtn) return;
-            
-            if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';
-                toggleBtn.className = 'fas fa-eye-slash';
-            } else {
-                passwordInput.type = 'password';
-                toggleBtn.className = 'fas fa-eye';
-            }
-        }
-        
-        // Xử lý đăng nhập
         async function handleLogin() {
-            const phone = document.getElementById('phone')?.value;
-            const password = document.getElementById('password')?.value;
-            
-            if (!phone || !password) {
-                showError('Vui lòng nhập đầy đủ thông tin');
-                return;
-            }
+            const phone = document.getElementById('phone').value;
+            const password = document.getElementById('password').value;
+            //const hkdName = loginType === 'hkd' ? document.getElementById('hkdName').value : '';
             
             try {
                 if (loginType === 'admin') {
@@ -418,13 +240,8 @@
             }
         }
         
-        // Hiển thị lỗi
         function showError(message) {
-            // Xóa lỗi cũ
-            const oldError = document.querySelector('.error-message');
-            if (oldError) oldError.remove();
-            
-            // Tạo thông báo lỗi mới
+            // Tạo thông báo lỗi
             const errorDiv = document.createElement('div');
             errorDiv.className = 'error-message';
             errorDiv.innerHTML = `
@@ -437,284 +254,556 @@
             
             // Thêm vào form
             const form = document.getElementById('loginForm');
-            if (form) form.prepend(errorDiv);
+            const existingError = form.querySelector('.error-message');
+            if (existingError) {
+                existingError.remove();
+            }
+            form.prepend(errorDiv);
+        }
+// Switch giữa login và register
+function showRegisterForm() {
+    console.log('📝 Hiển thị form đăng ký');
+    
+    // Ẩn form đăng nhập
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('registerLink').style.display = 'none';
+    document.getElementById('defaultAdminInfo').style.display = 'none';
+    document.getElementById('defaultHKDInfo').style.display = 'none';
+    
+    // Hiển thị form đăng ký
+    document.getElementById('registerSection').style.display = 'block';
+    setTimeout(() => {
+        document.getElementById('registerSection').classList.remove('hidden');
+    }, 10);
+    
+    // Auto switch to HKD type
+    switchLoginType('hkd');
+}
+
+function showLoginForm() {
+    console.log('🔐 Hiển thị form đăng nhập');
+    
+    // Ẩn form đăng ký
+    document.getElementById('registerSection').classList.add('hidden');
+    setTimeout(() => {
+        document.getElementById('registerSection').style.display = 'none';
+    }, 300);
+    
+    // Hiển thị form đăng nhập
+    document.getElementById('loginForm').classList.remove('hidden');
+    document.getElementById('registerLink').style.display = 'block';
+    document.getElementById('defaultAdminInfo').style.display = 'block';
+    
+    // Reset form đăng ký
+    document.getElementById('registerForm').reset();
+}
+
+// Toggle password cho register
+function toggleRegisterPassword() {
+    const passwordInput = document.getElementById('registerPassword');
+    const toggleBtn = document.querySelector('.toggle-password i');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleBtn.classList.remove('fa-eye');
+        toggleBtn.classList.add('fa-eye-slash');
+    } else {
+        passwordInput.type = 'password';
+        toggleBtn.classList.remove('fa-eye-slash');
+        toggleBtn.classList.add('fa-eye');
+    }
+}
+
+// Xử lý đăng ký HKD
+async function handleRegister(event) {
+    event.preventDefault();
+    
+    // Lấy dữ liệu từ form
+    const name = document.getElementById('registerName').value.trim();
+    const phone = document.getElementById('registerPhone').value.trim();
+    const address = document.getElementById('registerAddress').value.trim();
+    const password = document.getElementById('registerPassword').value;
+    const confirmPassword = document.getElementById('registerConfirmPassword').value;
+    
+    console.log('📝 Đăng ký HKD với:', { name, phone, address, passwordLength: password.length });
+    
+    // Validation
+    if (!name || !phone || !password) {
+        showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showToast('Mật khẩu phải có ít nhất 6 ký tự', 'error');
+        return;
+    }
+    
+    if (password !== confirmPassword) {
+        showToast('Mật khẩu xác nhận không khớp', 'error');
+        return;
+    }
+    
+    if (!Utils.validatePhone(phone)) {
+        showToast('Số điện thoại không hợp lệ', 'error');
+        return;
+    }
+    
+    try {
+        // Hiển thị loading
+        showLoading('Đang đăng ký tài khoản...');
+        
+        // Khởi tạo Firebase
+        await initFirebase();
+        
+        // Kiểm tra số điện thoại đã tồn tại chưa
+        const isDuplicate = await checkDuplicatePhone(phone);
+        if (isDuplicate) {
+            throw new Error('Số điện thoại đã được đăng ký');
         }
         
-        // Chuyển sang form đăng ký
-        function showRegisterForm() {
-            console.log('📝 Hiển thị form đăng ký');
+        // Tạo ID cho HKD
+        const hkdId = Utils.generateId();
+        
+        // Dữ liệu HKD
+        const hkdData = {
+            id: hkdId,
+            name: name,
+            phone: phone,
+            address: address,
+            password: password,
+            role: 'hkd',
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            _synced: true,
+            _autoRegistered: true // Đánh dấu đăng ký tự động
+        };
+        
+        // 1. Lưu lên Firebase với cấu trúc chuẩn
+        const firebaseData = {
+            info: {
+                name: name,
+                phone: phone,
+                address: address,
+                password: password, // QUAN TRỌNG: lưu mật khẩu
+                role: 'hkd',
+                createdAt: hkdData.createdAt,
+                lastUpdated: hkdData.lastUpdated,
+                _syncedAt: new Date().toISOString(),
+                _autoRegistered: true
+            },
+            categories: {}, // Danh mục rỗng ban đầu
+            invoices: {}    // Hóa đơn rỗng ban đầu
+        };
+        
+        const hkdRef = firebase.database().ref(`hkds/${hkdId}`);
+        await hkdRef.set(firebaseData);
+        
+        console.log('✅ Đã tạo HKD trên Firebase:', hkdId);
+        
+        // 2. Lưu vào IndexedDB local (để có thể login offline sau này)
+        try {
+            // Khởi tạo IndexedDB
+            await initIndexedDB();
             
-            // Ẩn form đăng nhập và các phần liên quan
-            const loginForm = document.getElementById('loginForm');
-            const registerLink = document.getElementById('registerLink');
-            const defaultAdminInfo = document.getElementById('defaultAdminInfo');
-            const defaultHKDInfo = document.getElementById('defaultHKDInfo');
+            // Lưu HKD vào IndexedDB
+            await updateInStore(STORES.HKDS, hkdData);
             
-            if (loginForm) loginForm.classList.add('hidden');
-            if (registerLink) registerLink.style.display = 'none';
-            if (defaultAdminInfo) defaultAdminInfo.style.display = 'none';
-            if (defaultHKDInfo) defaultHKDInfo.style.display = 'none';
-            
-            // Hiển thị form đăng ký
-            const registerSection = document.getElementById('registerSection');
-            if (registerSection) {
-                registerSection.style.display = 'block';
-                setTimeout(() => registerSection.classList.remove('hidden'), 10);
-            }
-            
-            // Chuyển sang loại HKD
-            switchLoginType('hkd');
+            console.log('✅ Đã lưu HKD vào IndexedDB local');
+        } catch (dbError) {
+            console.warn('⚠️ Không thể lưu vào IndexedDB:', dbError);
+            // Không block nếu lỗi IndexedDB
         }
         
-        // Chuyển về form đăng nhập
-        function showLoginForm() {
-            console.log('🔐 Hiển thị form đăng nhập');
-            
-            // Ẩn form đăng ký
-            const registerSection = document.getElementById('registerSection');
-            if (registerSection) {
-                registerSection.classList.add('hidden');
-                setTimeout(() => {
-                    registerSection.style.display = 'none';
-                }, 300);
-            }
-            
-            // Hiển thị form đăng nhập và các phần liên quan
-            const loginForm = document.getElementById('loginForm');
-            const registerLink = document.getElementById('registerLink');
-            const defaultAdminInfo = document.getElementById('defaultAdminInfo');
-            
-            if (loginForm) loginForm.classList.remove('hidden');
-            if (registerLink) registerLink.style.display = 'block';
-            if (defaultAdminInfo) defaultAdminInfo.style.display = 'block';
-            
-            // Reset form đăng ký
-            const registerForm = document.getElementById('registerForm');
-            if (registerForm) registerForm.reset();
-            
-            // Chuyển về loại đăng nhập mặc định
-            switchLoginType('admin');
-        }
+        // 3. Đăng nhập tự động
+        console.log('🔑 Tự động đăng nhập sau khi đăng ký...');
         
-        // Xử lý đăng ký HKD
-        async function handleRegister(event) {
-            event.preventDefault();
-            
-            // Lấy dữ liệu từ form
-            const name = document.getElementById('registerName')?.value.trim();
-            const phone = document.getElementById('registerPhone')?.value.trim();
-            const address = document.getElementById('registerAddress')?.value.trim();
-            const password = document.getElementById('registerPassword')?.value;
-            const confirmPassword = document.getElementById('registerConfirmPassword')?.value;
-            
-            // Validation cơ bản
-            if (!name || !phone || !password) {
-                showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
-                return;
-            }
-            
-            if (password.length < 6) {
-                showToast('Mật khẩu phải có ít nhất 6 ký tự', 'error');
-                return;
-            }
-            
-            if (password !== confirmPassword) {
-                showToast('Mật khẩu xác nhận không khớp', 'error');
-                return;
-            }
-            
-            // Sử dụng hàm validatePhone từ utils.js
-            if (typeof Utils !== 'undefined' && Utils.validatePhone) {
-                if (!Utils.validatePhone(phone)) {
-                    showToast('Số điện thoại không hợp lệ', 'error');
-                    return;
-                }
-            }
-            
-            try {
-                showLoading('Đang đăng ký tài khoản...');
-                
-                // Khởi tạo Firebase nếu cần
-                if (typeof initFirebase === 'function') {
-                    await initFirebase();
-                }
-                
-                // Kiểm tra số điện thoại đã tồn tại chưa
-                const isDuplicate = await checkDuplicatePhone(phone);
-                if (isDuplicate) {
-                    throw new Error('Số điện thoại đã được đăng ký');
-                }
-                
-                // Tạo ID cho HKD - sử dụng hàm từ utils.js
-                const hkdId = (typeof Utils !== 'undefined' && Utils.generateId) 
-                    ? Utils.generateId() 
-                    : 'hkd_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                
-                // Dữ liệu HKD
-                const hkdData = {
-                    id: hkdId,
-                    name: name,
-                    phone: phone,
-                    address: address,
-                    password: password,
-                    role: 'hkd',
-                    createdAt: new Date().toISOString(),
-                    lastUpdated: new Date().toISOString(),
-                    _synced: true,
-                    _autoRegistered: true
-                };
-                
-                // Lưu lên Firebase nếu có
-                if (typeof firebase !== 'undefined') {
-                    const firebaseData = {
-                        info: {
-                            name: name,
-                            phone: phone,
-                            address: address,
-                            password: password,
-                            role: 'hkd',
-                            createdAt: hkdData.createdAt,
-                            lastUpdated: hkdData.lastUpdated,
-                            _syncedAt: new Date().toISOString(),
-                            _autoRegistered: true
-                        },
-                        categories: {},
-                        invoices: {}
-                    };
-                    
-                    const hkdRef = firebase.database().ref(`hkds/${hkdId}`);
-                    await hkdRef.set(firebaseData);
-                    
-                    console.log('✅ Đã tạo HKD trên Firebase:', hkdId);
-                }
-                
-                // Lưu vào IndexedDB nếu có
-                if (typeof updateInStore === 'function') {
-                    try {
-                        await updateInStore(STORES.HKDS, hkdData);
-                        console.log('✅ Đã lưu HKD vào IndexedDB');
-                    } catch (dbError) {
-                        console.warn('⚠️ Không thể lưu vào IndexedDB:', dbError);
-                    }
-                }
-                
-                // Lưu thông tin user để tự động đăng nhập
-                loginPageCurrentUser = {
-                    id: hkdId,
-                    phone: phone,
-                    name: name,
-                    address: address,
-                    role: 'hkd',
-                    loginTime: new Date().toISOString()
-                };
-                
-                // Sử dụng hàm setCurrentUser từ auth.js nếu có, nếu không thì dùng localStorage
-                if (typeof setCurrentUser === 'function') {
-                    setCurrentUser(loginPageCurrentUser);
-                } else {
-                    localStorage.setItem('currentUser', JSON.stringify(loginPageCurrentUser));
-                }
-                
-                showToast('Đăng ký thành công! Đang chuyển hướng...', 'success');
-                
-                setTimeout(() => {
-                    window.location.href = 'hkd.html';
-                }, 1500);
-                
-            } catch (error) {
-                console.error('❌ Lỗi đăng ký:', error);
-                showToast(`Lỗi đăng ký: ${error.message}`, 'error');
-            } finally {
-                hideLoading();
-            }
-        }
+        currentUser = {
+            id: hkdId,
+            phone: phone,
+            name: name,
+            address: address,
+            role: 'hkd',
+            loginTime: new Date().toISOString()
+        };
         
-        // Kiểm tra số điện thoại trùng
-        async function checkDuplicatePhone(phone) {
-            try {
-                if (typeof firebase === 'undefined') return false;
-                
-                const hkdsRef = firebase.database().ref('hkds');
-                const snapshot = await hkdsRef.once('value');
-                const hkdsData = snapshot.val();
-                
-                if (!hkdsData) return false;
-                
-                for (const [hkdId, hkdData] of Object.entries(hkdsData)) {
-                    if (hkdData.info && hkdData.info.phone === phone) {
-                        return true;
-                    }
-                }
-                
-                return false;
-                
-            } catch (error) {
-                console.error('❌ Lỗi kiểm tra trùng số điện thoại:', error);
-                throw error;
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        
+        // 4. Chuyển đến trang HKD
+        showToast('Đăng ký thành công! Đang chuyển đến trang HKD...', 'success');
+        
+        setTimeout(() => {
+            window.location.href = 'hkd.html';
+        }, 1500);
+        
+    } catch (error) {
+        console.error('❌ Lỗi đăng ký:', error);
+        showToast(`Lỗi đăng ký: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Kiểm tra số điện thoại trùng
+async function checkDuplicatePhone(phone) {
+    try {
+        await initFirebase();
+        
+        // Lấy tất cả HKD từ Firebase
+        const hkdsRef = firebase.database().ref('hkds');
+        const snapshot = await hkdsRef.once('value');
+        const hkdsData = snapshot.val();
+        
+        if (!hkdsData) return false;
+        
+        // Duyệt qua tất cả HKD
+        for (const [hkdId, hkdData] of Object.entries(hkdsData)) {
+            if (hkdData.info && hkdData.info.phone === phone) {
+                return true; // Đã tồn tại
             }
         }
         
-        // Helper: Hiển thị toast thông báo
-        function showToast(message, type = 'info') {
-            const toast = document.createElement('div');
-            toast.className = `toast-notification toast-${type}`;
-            toast.innerHTML = `
-                <div class="toast-content">
-                    <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
-                    <span>${message}</span>
-                </div>
-            `;
+        return false; // Chưa tồn tại
+        
+    } catch (error) {
+        console.error('❌ Lỗi kiểm tra trùng số điện thoại:', error);
+        throw error;
+    }
+}
+
+// Helper functions (thêm vào nếu chưa có)
+function showToast(message, type = 'info') {
+    // Tạo toast element đơn giản
+    const toast = document.createElement('div');
+    toast.className = `toast-notification toast-${type}`;
+    toast.innerHTML = `
+        <div class="toast-content">
+            <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Hiệu ứng
+    setTimeout(() => toast.classList.add('show'), 10);
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function showLoading(message) {
+    let loading = document.getElementById('loadingOverlay');
+    if (!loading) {
+        loading = document.createElement('div');
+        loading.id = 'loadingOverlay';
+        loading.innerHTML = `
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <div class="loading-text">${message}</div>
+            </div>
+        `;
+        document.body.appendChild(loading);
+    } else {
+        loading.querySelector('.loading-text').textContent = message;
+    }
+    loading.classList.add('show');
+}
+
+function hideLoading() {
+    const loading = document.getElementById('loadingOverlay');
+    if (loading) {
+        loading.classList.remove('show');
+        setTimeout(() => loading.remove(), 300);
+    }
+}
+
+// Switch giữa login và register
+function showRegisterForm() {
+    console.log('📝 Hiển thị form đăng ký');
+    
+    // Ẩn form đăng nhập
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('registerLink').style.display = 'none';
+    document.getElementById('defaultAdminInfo').style.display = 'none';
+    document.getElementById('defaultHKDInfo').style.display = 'none';
+    
+    // Hiển thị form đăng ký
+    document.getElementById('registerSection').style.display = 'block';
+    setTimeout(() => {
+        document.getElementById('registerSection').classList.remove('hidden');
+    }, 10);
+    
+    // Auto switch to HKD type
+    switchLoginType('hkd');
+}
+
+function showLoginForm() {
+    console.log('🔐 Hiển thị form đăng nhập');
+    
+    // Ẩn form đăng ký
+    document.getElementById('registerSection').classList.add('hidden');
+    setTimeout(() => {
+        document.getElementById('registerSection').style.display = 'none';
+    }, 300);
+    
+    // Hiển thị form đăng nhập
+    document.getElementById('loginForm').classList.remove('hidden');
+    document.getElementById('registerLink').style.display = 'block';
+    document.getElementById('defaultAdminInfo').style.display = 'block';
+    
+    // Reset form đăng ký
+    document.getElementById('registerForm').reset();
+}
+
+// Toggle password cho register
+function toggleRegisterPassword() {
+    const passwordInput = document.getElementById('registerPassword');
+    const toggleBtn = document.querySelector('.toggle-password i');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleBtn.classList.remove('fa-eye');
+        toggleBtn.classList.add('fa-eye-slash');
+    } else {
+        passwordInput.type = 'password';
+        toggleBtn.classList.remove('fa-eye-slash');
+        toggleBtn.classList.add('fa-eye');
+    }
+}
+
+// Xử lý đăng ký HKD
+async function handleRegister(event) {
+    event.preventDefault();
+    
+    // Lấy dữ liệu từ form
+    const name = document.getElementById('registerName').value.trim();
+    const phone = document.getElementById('registerPhone').value.trim();
+    const address = document.getElementById('registerAddress').value.trim();
+    const password = document.getElementById('registerPassword').value;
+    const confirmPassword = document.getElementById('registerConfirmPassword').value;
+    
+    console.log('📝 Đăng ký HKD với:', { name, phone, address, passwordLength: password.length });
+    
+    // Validation
+    if (!name || !phone || !password) {
+        showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
+        return;
+    }
+    
+    if (password.length < 6) {
+        showToast('Mật khẩu phải có ít nhất 6 ký tự', 'error');
+        return;
+    }
+    
+    if (password !== confirmPassword) {
+        showToast('Mật khẩu xác nhận không khớp', 'error');
+        return;
+    }
+    
+    if (!Utils.validatePhone(phone)) {
+        showToast('Số điện thoại không hợp lệ', 'error');
+        return;
+    }
+    
+    try {
+        // Hiển thị loading
+        showLoading('Đang đăng ký tài khoản...');
+        
+        // Khởi tạo Firebase
+        await initFirebase();
+        
+        // Kiểm tra số điện thoại đã tồn tại chưa
+        const isDuplicate = await checkDuplicatePhone(phone);
+        if (isDuplicate) {
+            throw new Error('Số điện thoại đã được đăng ký');
+        }
+        
+        // Tạo ID cho HKD
+        const hkdId = Utils.generateId();
+        
+        // Dữ liệu HKD
+        const hkdData = {
+            id: hkdId,
+            name: name,
+            phone: phone,
+            address: address,
+            password: password,
+            role: 'hkd',
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            _synced: true,
+            _autoRegistered: true // Đánh dấu đăng ký tự động
+        };
+        
+        // 1. Lưu lên Firebase với cấu trúc chuẩn
+        const firebaseData = {
+            info: {
+                name: name,
+                phone: phone,
+                address: address,
+                password: password, // QUAN TRỌNG: lưu mật khẩu
+                role: 'hkd',
+                createdAt: hkdData.createdAt,
+                lastUpdated: hkdData.lastUpdated,
+                _syncedAt: new Date().toISOString(),
+                _autoRegistered: true
+            },
+            categories: {}, // Danh mục rỗng ban đầu
+            invoices: {}    // Hóa đơn rỗng ban đầu
+        };
+        
+        const hkdRef = firebase.database().ref(`hkds/${hkdId}`);
+        await hkdRef.set(firebaseData);
+        
+        console.log('✅ Đã tạo HKD trên Firebase:', hkdId);
+        
+        // 2. Lưu vào IndexedDB local (để có thể login offline sau này)
+        try {
+            // Khởi tạo IndexedDB
+            await initIndexedDB();
             
-            document.body.appendChild(toast);
+            // Lưu HKD vào IndexedDB
+            await updateInStore(STORES.HKDS, hkdData);
             
-            setTimeout(() => toast.classList.add('show'), 10);
-            setTimeout(() => {
-                toast.classList.remove('show');
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
+            console.log('✅ Đã lưu HKD vào IndexedDB local');
+        } catch (dbError) {
+            console.warn('⚠️ Không thể lưu vào IndexedDB:', dbError);
+            // Không block nếu lỗi IndexedDB
         }
         
-        // Helper: Hiển thị loading
-        function showLoading(message) {
-            let loading = document.getElementById('loadingOverlay');
-            if (!loading) {
-                loading = document.createElement('div');
-                loading.id = 'loadingOverlay';
-                loading.innerHTML = `
-                    <div class="loading-spinner">
-                        <div class="spinner"></div>
-                        <div class="loading-text">${message}</div>
-                    </div>
-                `;
-                document.body.appendChild(loading);
-            } else {
-                const textEl = loading.querySelector('.loading-text');
-                if (textEl) textEl.textContent = message;
+        // 3. Đăng nhập tự động
+        console.log('🔑 Tự động đăng nhập sau khi đăng ký...');
+        
+        currentUser = {
+            id: hkdId,
+            phone: phone,
+            name: name,
+            address: address,
+            role: 'hkd',
+            loginTime: new Date().toISOString()
+        };
+        
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        
+        // 4. Chuyển đến trang HKD
+        showToast('Đăng ký thành công! Đang chuyển đến trang HKD...', 'success');
+        
+        setTimeout(() => {
+            window.location.href = 'hkd.html';
+        }, 1500);
+        
+    } catch (error) {
+        console.error('❌ Lỗi đăng ký:', error);
+        showToast(`Lỗi đăng ký: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Kiểm tra số điện thoại trùng
+async function checkDuplicatePhone(phone) {
+    try {
+        await initFirebase();
+        
+        // Lấy tất cả HKD từ Firebase
+        const hkdsRef = firebase.database().ref('hkds');
+        const snapshot = await hkdsRef.once('value');
+        const hkdsData = snapshot.val();
+        
+        if (!hkdsData) return false;
+        
+        // Duyệt qua tất cả HKD
+        for (const [hkdId, hkdData] of Object.entries(hkdsData)) {
+            if (hkdData.info && hkdData.info.phone === phone) {
+                return true; // Đã tồn tại
             }
-            loading.classList.add('show');
         }
         
-        // Helper: Ẩn loading
-        function hideLoading() {
-            const loading = document.getElementById('loadingOverlay');
-            if (loading) {
-                loading.classList.remove('show');
-                setTimeout(() => {
-                    if (loading.parentNode) loading.parentNode.removeChild(loading);
-                }, 300);
-            }
-        }
+        return false; // Chưa tồn tại
         
-        // Khởi tạo khi trang load
-        document.addEventListener('DOMContentLoaded', initLoginPage);
-        
-        // Export các hàm ra window để sử dụng từ HTML attributes
-        window.goBack = goBack;
-        window.switchLoginType = switchLoginType;
-        window.togglePassword = togglePassword;
-        window.showRegisterForm = showRegisterForm;
-        window.showLoginForm = showLoginForm;
-        window.toggleRegisterPassword = toggleRegisterPassword;
+    } catch (error) {
+        console.error('❌ Lỗi kiểm tra trùng số điện thoại:', error);
+        throw error;
+    }
+}
+
+// Helper functions (thêm vào nếu chưa có)
+function showToast(message, type = 'info') {
+    // Tạo toast element đơn giản
+    const toast = document.createElement('div');
+    toast.className = `toast-notification toast-${type}`;
+    toast.innerHTML = `
+        <div class="toast-content">
+            <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Hiệu ứng
+    setTimeout(() => toast.classList.add('show'), 10);
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function showLoading(message) {
+    let loading = document.getElementById('loadingOverlay');
+    if (!loading) {
+        loading = document.createElement('div');
+        loading.id = 'loadingOverlay';
+        loading.innerHTML = `
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <div class="loading-text">${message}</div>
+            </div>
+        `;
+        document.body.appendChild(loading);
+    } else {
+        loading.querySelector('.loading-text').textContent = message;
+    }
+    loading.classList.add('show');
+}
+
+/*************  ✨ Windsurf Command ⭐  *************/
+/**
+ * Hide loading overlay
+ * 
+ * @param {HTMLElement} loading - Loading overlay element
+ */
+/*******  fe15a1b5-660a-4f90-891f-ddfbf77946a6  *******/
+function hideLoading() {
+    const loading = document.getElementById('loadingOverlay');
+    if (loading) {
+        loading.classList.remove('show');
+        setTimeout(() => loading.remove(), 300);
+    }
+}
+
+// Thêm event listener khi page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Login form
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLogin);
+    }
+    
+    // Register form
+    const registerForm = document.getElementById('registerForm');
+    if (registerForm) {
+        registerForm.addEventListener('submit', handleRegister);
+    }
+    
+    // Auto focus khi switch to register
+    window.showRegisterForm = showRegisterForm;
+    window.showLoginForm = showLoginForm;
+    window.toggleRegisterPassword = toggleRegisterPassword;
+});
+        // Khởi tạo trang
+        window.onload = initLoginPage;
     </script>
 </body>
 </html>
