@@ -11,6 +11,23 @@ let hkdSyncInterval = null;
 // Sửa hàm initHKDPage để khởi tạo sync
 async function initHKDPage() {
     try {
+         setTimeout(async () => {
+        if (!currentHKD) return;
+        
+        const products = await getProductsByHKD(currentHKD.id);
+        const categories = await getCategoriesByHKD(currentHKD.id);
+        
+        if ((products.length === 0 || categories.length === 0) && navigator.onLine) {
+            console.log('📭 HKD: Dữ liệu trống, thực hiện sync...');
+            Utils.showToast('Đang tải dữ liệu...', 'info');
+            
+            if (typeof syncHKDDataFromFirebase === 'function') {
+                await syncHKDDataFromFirebase(currentHKD.id);
+                await loadHKDData(); // Tải lại sau sync
+                displayProducts(); // Refresh UI
+            }
+        }
+    }, 2000);
         // Khởi tạo toàn bộ hệ thống
         await initSystem();
         
@@ -91,7 +108,6 @@ function handleHKDConnectionChange() {
     }
 }
 
-// Đồng bộ từ Firebase về IndexedDB (cho HKD)
 async function syncFromFirebase() {
     if (isSyncing) {
         console.log('🔄 Đang sync, bỏ qua...');
@@ -102,32 +118,22 @@ async function syncFromFirebase() {
     console.log('⬇️ Đồng bộ từ Firebase về IndexedDB...');
     
     try {
-        // Đồng bộ thông tin HKD
-        await syncHKDInfoFromFirebase();
+        // THAY VÌ gọi các hàm riêng lẻ, gọi hàm mới tổng hợp
+        await syncHKDDataFromFirebase(currentHKD.id); // ← Hàm vừa sửa
         
-        // Đồng bộ danh mục
-        await syncCategoriesFromFirebase();
-        
-        // Đồng bộ sản phẩm
-        await syncProductsFromFirebase();
-        
-        // Đồng bộ hóa đơn
-        await syncInvoicesFromFirebase();
-        
-        console.log('✅ Đã đồng bộ xong từ Firebase');
-        
-        // Tải lại dữ liệu sau sync
+        // Tải lại dữ liệu local
         await loadHKDData();
         
         // Cập nhật UI
         displayProducts();
         updateCategoryList();
         
-        // Thông báo nếu có dữ liệu mới
+        console.log('✅ Đã đồng bộ xong từ Firebase');
         Utils.showToast('Đã cập nhật dữ liệu mới', 'success');
         
     } catch (error) {
         console.error('❌ Lỗi đồng bộ từ Firebase:', error);
+        Utils.showToast('Lỗi đồng bộ dữ liệu', 'error');
     } finally {
         isSyncing = false;
     }
@@ -378,8 +384,88 @@ async function syncInvoicesFromFirebase() {
         console.error('❌ Lỗi sync invoices:', error);
     }
 }
-
-// Lắng nghe realtime updates cho HKD
+// Hàm thiết lập listener cho sản phẩm trong một danh mục cụ thể
+async function setupProductListenersForCategory(categoryId) {
+    console.log(`🎧 Thiết lập product listeners cho danh mục ${categoryId}`);
+    
+    try {
+        await initFirebase();
+        
+        const productsRef = firebase.database().ref(
+            `hkds/${currentHKD.id}/categories/${categoryId}/products`
+        );
+        
+        // a) Khi hàng hóa bị xóa
+        productsRef.on('child_removed', async (snapshot) => {
+            const productId = snapshot.key;
+            console.log(`🗑️ [REALTIME] Sản phẩm ${productId} đã bị xóa từ Admin`);
+            
+            // Xóa khỏi IndexedDB
+            await deleteFromStore(STORES.PRODUCTS, productId);
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast('Sản phẩm đã bị xóa', 'warning');
+        });
+        
+        // b) Khi hàng hóa thay đổi
+        productsRef.on('child_changed', async (snapshot) => {
+            const productId = snapshot.key;
+            const productData = snapshot.val();
+            
+            console.log(`🔄 [REALTIME] Sản phẩm ${productId} đã thay đổi:`, productData?.name);
+            
+            // Cập nhật sản phẩm
+            await updateInStore(STORES.PRODUCTS, {
+                id: productId,
+                hkdId: currentHKD.id,
+                categoryId: categoryId,
+                ...productData,
+                _synced: true
+            });
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast(`Sản phẩm "${productData.name}" đã được cập nhật`, 'info');
+        });
+        
+        // c) Khi có hàng hóa mới
+        productsRef.on('child_added', async (snapshot) => {
+            const productId = snapshot.key;
+            const productData = snapshot.val();
+            
+            console.log(`🆕 [REALTIME] Sản phẩm mới ${productId}:`, productData?.name);
+            
+            // Thêm sản phẩm mới
+            await updateInStore(STORES.PRODUCTS, {
+                id: productId,
+                hkdId: currentHKD.id,
+                categoryId: categoryId,
+                ...productData,
+                _synced: true
+            });
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast(`Sản phẩm mới: "${productData.name}"`, 'success');
+        });
+        
+        console.log(`✅ Đã thiết lập product listeners cho danh mục ${categoryId}`);
+        
+        // Lưu reference để cleanup sau
+        if (!window.productListeners) window.productListeners = [];
+        window.productListeners.push(productsRef);
+        
+    } catch (error) {
+        console.error(`❌ Lỗi thiết lập listener cho danh mục ${categoryId}:`, error);
+    }
+}
 async function listenForHKDRealtimeUpdates() {
     console.log('🎧 Bắt đầu lắng nghe realtime updates cho HKD...');
     
@@ -391,41 +477,75 @@ async function listenForHKDRealtimeUpdates() {
     try {
         await initFirebase();
         
-        // 1. Lắng nghe thay đổi sản phẩm
+        // ==================== 1. LẮNG NGHE DANH MỤC ====================
         const categoriesRef = firebase.database().ref(`hkds/${currentHKD.id}/categories`);
         
-        categoriesRef.on('child_changed', async (snapshot) => {
-            console.log('🔄 Có thay đổi trong categories/products');
+        // a) Khi danh mục bị xóa (Admin xóa danh mục)
+        categoriesRef.on('child_removed', async (snapshot) => {
+            const categoryId = snapshot.key;
+            console.log(`🗑️ [REALTIME] Danh mục ${categoryId} đã bị xóa từ Admin`);
             
-            // Đồng bộ lại dữ liệu
-            await syncProductsFromFirebase();
-            await syncCategoriesFromFirebase();
+            // Xóa danh mục khỏi IndexedDB
+            await deleteFromStore(STORES.CATEGORIES, categoryId);
+            
+            // Xóa TẤT CẢ sản phẩm trong danh mục này
+            const products = await getProductsByHKD(currentHKD.id);
+            const categoryProducts = products.filter(p => p.categoryId === categoryId);
+            
+            for (const product of categoryProducts) {
+                await deleteFromStore(STORES.PRODUCTS, product.id);
+            }
+            
+            console.log(`✅ Đã xóa ${categoryProducts.length} sản phẩm trong danh mục`);
             
             // Cập nhật UI
             await loadHKDData();
             displayProducts();
             updateCategoryList();
             
-            Utils.showToast('Có sản phẩm/danh mục mới được cập nhật', 'info');
+            Utils.showToast(`Đã xóa danh mục (${categoryProducts.length} sản phẩm)`, 'warning');
         });
         
-        // 2. Lắng nghe sản phẩm mới được thêm
-        categoriesRef.on('child_added', async (snapshot) => {
-            const data = snapshot.val();
-            
-            // Kiểm tra xem có phải là sản phẩm không
-            if (data && data.msp) {
-                console.log('🆕 Có sản phẩm mới được thêm:', data.name);
+        // ==================== 2. LẮNG NGHE HÀNG HÓA TRONG TỪNG DANH MỤC ====================
+        // Lấy tất cả danh mục hiện có và lắng nghe từng danh mục
+        const categoriesSnapshot = await categoriesRef.once('value');
+        const categoriesData = categoriesSnapshot.val();
+        
+        if (categoriesData) {
+            for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+                if (!categoryData || !categoryData.name) continue;
                 
-                // Đồng bộ lại
-                await syncProductsFromFirebase();
-                
-                // Cập nhật UI
-                await loadHKDData();
-                displayProducts();
-                
-                Utils.showToast(`Có sản phẩm mới: ${data.name}`, 'success');
+                // Lắng nghe sản phẩm trong danh mục này
+                await setupProductListenersForCategory(categoryId);
             }
+        }
+        
+        // ==================== 3. LẮNG NGHE DANH MỤC MỚI ĐỂ THIẾT LẬP LISTENER CHO NÓ ====================
+        categoriesRef.on('child_added', async (snapshot) => {
+            const categoryId = snapshot.key;
+            const categoryData = snapshot.val();
+            
+            console.log(`🆕 [REALTIME] Danh mục mới ${categoryId}: "${categoryData?.name}"`);
+            
+            // Thêm danh mục
+            await updateInStore(STORES.CATEGORIES, {
+                id: categoryId,
+                hkdId: currentHKD.id,
+                name: categoryData.name,
+                description: categoryData.description || '',
+                createdAt: categoryData.createdAt || new Date().toISOString(),
+                lastUpdated: categoryData.lastUpdated || new Date().toISOString(),
+                _synced: true
+            });
+            
+            // Thiết lập listener cho sản phẩm trong danh mục mới
+            await setupProductListenersForCategory(categoryId);
+            
+            // Cập nhật UI
+            await loadHKDData();
+            updateCategoryList();
+            
+            Utils.showToast(`Danh mục mới: "${categoryData.name}"`, 'success');
         });
         
         console.log('✅ Đã bật realtime listener cho HKD');
@@ -608,7 +728,18 @@ function initSidebar() {
         </div>
     `).join('');
 }
-
+// Hiển thị trang quản lý của HKD
+function showAllManagement() {
+    console.log('📋 Hiển thị trang quản lý HKD');
+    
+    // Tạo modal hoặc mở trang quản lý
+    const modal = new bootstrap.Modal(document.getElementById('hkdManagementModal'));
+    
+    // Load danh mục và sản phẩm vào modal
+    loadHKDManagementData();
+    
+    modal.show();
+}
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     sidebar.classList.toggle('active');
@@ -628,30 +759,38 @@ function toggleSidebar() {
     }
 }
 
-// Cập nhật danh sách danh mục
 function updateCategoryList() {
     const categoryContainer = document.getElementById('categoryList');
     if (!categoryContainer) return;
     
-    // Tạo unique categories từ products
-    const productCategories = [...new Set(products.map(p => p.category).filter(Boolean))];
+    // Tạo unique categories từ products theo cấu trúc mới
+    const uniqueCategoryIds = [...new Set(products
+        .map(p => p.categoryId)
+        .filter(Boolean))];
     
-    // Kết hợp với categories từ database
-    const allCategories = [...new Set([
-        'Tất cả',
+    // Lấy tên danh mục từ categories array
+    const productCategories = uniqueCategoryIds
+        .map(categoryId => {
+            const category = categories.find(c => c.id === categoryId);
+            return category ? category.name : null;
+        })
+        .filter(Boolean);
+    
+    // Kết hợp với danh sách categories từ database
+    const allCategories = ['Tất cả', ...new Set([
         ...categories.map(c => c.name),
         ...productCategories
     ])];
     
-    categoryContainer.innerHTML = allCategories.map(category => `
-        <button class="category-filter ${category === 'Tất cả' ? 'active' : ''}" 
-                data-category="${category}">
-            ${category}
+    // Render category filters
+    categoryContainer.innerHTML = allCategories.map(cat => `
+        <button class="category-filter ${cat === 'Tất cả' ? 'active' : ''}" 
+                data-category="${cat}">
+            ${cat}
         </button>
     `).join('');
 }
 
-// Sửa hàm displayProducts trong hkd.js
 function displayProducts(category = 'Tất cả') {
     const productGrid = document.getElementById('productGrid');
     if (!productGrid) return;
@@ -659,53 +798,56 @@ function displayProducts(category = 'Tất cả') {
     let filteredProducts = products;
     
     if (category !== 'Tất cả') {
-        console.log(`🔍 Filtering products by category: ${category}`);
+        console.log(`🔍 Filtering by category: "${category}"`);
         
-        // CÁCH 1: Filter theo category name
-        filteredProducts = products.filter(p => {
+        // FILTER THEO CẤU TRÚC MỚI: product có categoryId, tìm tên từ categories array
+        filteredProducts = products.filter(product => {
+            if (!product || !product.categoryId) return false;
+            
             // Tìm tên danh mục từ categoryId
-            const productCategory = getCategoryNameById(p.categoryId);
-            console.log(`  Product: ${p.name}, categoryId: ${p.categoryId}, categoryName: ${productCategory}`);
-            return productCategory === category;
+            const productCategory = categories.find(c => 
+                c && c.id === product.categoryId
+            );
+            
+            // So sánh tên danh mục
+            return productCategory && productCategory.name === category;
         });
         
-        console.log(`📊 Filtered ${filteredProducts.length} products for category: ${category}`);
+        console.log(`📊 Found ${filteredProducts.length} products for category "${category}"`);
     }
     
+    // Hiển thị sản phẩm
     if (filteredProducts.length === 0) {
         productGrid.innerHTML = `
             <div class="no-products">
                 <i class="fas fa-box-open"></i>
                 <p>Không có sản phẩm trong danh mục này</p>
-                <p class="small">Chọn danh mục khác</p>
             </div>
         `;
         return;
     }
     
     productGrid.innerHTML = filteredProducts.map(product => {
-        // Lấy tên danh mục để hiển thị (nếu cần)
-        const productCategory = getCategoryNameById(product.categoryId);
+        // Lấy tên danh mục để hiển thị
+        const categoryObj = categories.find(c => c.id === product.categoryId);
+        const categoryName = categoryObj ? categoryObj.name : '';
         
         return `
-            <div class="product-card" data-product-id="${product.id}" data-category="${productCategory}">
+            <div class="product-card" data-product-id="${product.id}">
                 <div class="product-info">
                     <div class="product-name">${product.name}</div>
                     <div class="product-details">
                         <span class="product-price">${Utils.formatCurrency(product.price)}</span>
                         <span class="product-unit">/${product.unit}</span>
                     </div>
-                    ${product.stock !== undefined && product.stock !== null ? 
+                    ${product.stock !== undefined ? 
                         `<div class="product-stock">Còn: ${product.stock}</div>` : 
                         `<div class="product-stock">Không giới hạn</div>`
                     }
-                    ${productCategory ? `<div class="product-category-badge">${productCategory}</div>` : ''}
+                    ${categoryName ? `<div class="product-category-badge">${categoryName}</div>` : ''}
                 </div>
                 <div class="product-cart">
-                    <div class="cart-quantity">
-                        <span class="quantity-label">SL:</span>
-                        <span class="quantity-value">${getCartQuantity(product.id)}</span>
-                    </div>
+                    <span class="quantity-value">${getCartQuantity(product.id)}</span>
                     <button class="btn-add-cart">
                         <i class="fas fa-plus"></i>
                     </button>
@@ -715,12 +857,98 @@ function displayProducts(category = 'Tất cả') {
     }).join('');
 }
 
-// Thêm hàm helper để lấy tên danh mục từ categoryId
-function getCategoryNameById(categoryId) {
-    if (!categoryId || !categories || !Array.isArray(categories)) {
-        return '';
-    }
+async function editHKDProduct(productId) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
     
+    // Điền dữ liệu vào form
+    document.getElementById('hkdProductCode').value = product.msp || '';
+    document.getElementById('hkdProductName').value = product.name || '';
+    document.getElementById('hkdProductUnit').value = product.unit || 'cái';
+    document.getElementById('hkdProductPrice').value = product.price || 0;
+    document.getElementById('hkdProductStock').value = product.stock || 0;
+    document.getElementById('hkdProductDescription').value = product.description || '';
+    
+    // Load danh mục và chọn đúng
+    const categorySelect = document.getElementById('hkdProductCategory');
+    categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
+    
+    categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category.id;
+        option.textContent = category.name;
+        if (category.id === product.categoryId) {
+            option.selected = true;
+        }
+        categorySelect.appendChild(option);
+    });
+    
+    // Lưu ID sản phẩm đang sửa
+    document.getElementById('hkdProductModal').dataset.editId = productId;
+    document.querySelector('#hkdProductModal .modal-title').textContent = 'Sửa hàng hóa';
+    
+    const modal = new bootstrap.Modal(document.getElementById('hkdProductModal'));
+    modal.show();
+}
+async function deleteHKDProduct(productId) {
+    const confirmed = await Utils.confirm('Bạn có chắc muốn xóa sản phẩm này?');
+    if (!confirmed) return;
+    
+    Utils.showLoading('Đang xóa...');
+    
+    try {
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        
+        // 1. Xóa khỏi IndexedDB
+        await deleteFromStore(STORES.PRODUCTS, productId);
+        
+        // 2. Cập nhật UI ngay
+        products = products.filter(p => p.id !== productId);
+        displayProducts();
+        
+        Utils.showToast('Đã xóa sản phẩm', 'success');
+        
+        // 3. Sync xóa lên Firebase
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                const productRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${product.categoryId}/products/${productId}`
+                );
+                
+                // Soft delete
+                await productRef.update({
+                    _deleted: true,
+                    _deletedAt: new Date().toISOString(),
+                    lastUpdated: new Date().toISOString()
+                });
+                
+                console.log('✅ HKD đã xóa sản phẩm trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync delete:', firebaseError);
+                await addToSyncQueue({
+                    type: 'products_delete',
+                    data: {
+                        id: productId,
+                        hkdId: currentHKD.id,
+                        categoryId: product.categoryId
+                    }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi xóa sản phẩm:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+function getCategoryNameById(categoryId) {
+    if (!categoryId || !categories) return '';
     const category = categories.find(c => c && c.id === categoryId);
     return category ? category.name : '';
 }
@@ -755,7 +983,7 @@ function debugProductCategories() {
 window.debugProductCategories = debugProductCategories;
 
 function filterProductsByCategory(category) {
-    // Update active category
+    // Update active button
     document.querySelectorAll('.category-filter').forEach(btn => {
         btn.classList.remove('active');
     });
@@ -765,7 +993,7 @@ function filterProductsByCategory(category) {
         activeBtn.classList.add('active');
     }
     
-    // Display products
+    // Display filtered products
     displayProducts(category);
 }
 
@@ -1527,7 +1755,388 @@ function showDashboard() {
         toggleSidebar();
     }
 }
+// Hiển thị modal thêm danh mục
+function showCategoryModal() {
+    // Reset form
+    document.getElementById('hkdCategoryName').value = '';
+    document.getElementById('hkdCategoryDescription').value = '';
+    
+    const modal = new bootstrap.Modal(document.getElementById('hkdCategoryModal'));
+    modal.show();
+}
 
+// Hiển thị modal thêm hàng hóa
+function showProductModal() {
+    // Reset form
+    document.getElementById('hkdProductCode').value = '';
+    document.getElementById('hkdProductName').value = '';
+    document.getElementById('hkdProductUnit').value = 'cái';
+    document.getElementById('hkdProductPrice').value = '';
+    document.getElementById('hkdProductStock').value = '0';
+    document.getElementById('hkdProductDescription').value = '';
+    
+    // Load danh mục vào select
+    const categorySelect = document.getElementById('hkdProductCategory');
+    categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
+    
+    categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category.id;
+        option.textContent = category.name;
+        categorySelect.appendChild(option);
+    });
+    
+    const modal = new bootstrap.Modal(document.getElementById('hkdProductModal'));
+    modal.show();
+}
+async function saveHKDCategory() {
+    const name = document.getElementById('hkdCategoryName').value.trim();
+    const description = document.getElementById('hkdCategoryDescription').value.trim();
+    
+    if (!name) {
+        Utils.showToast('Vui lòng nhập tên danh mục', 'error');
+        return;
+    }
+    
+    Utils.showLoading('Đang lưu danh mục...');
+    
+    try {
+        // Tạo category data
+        const categoryId = Utils.generateId();
+        const categoryData = {
+            id: categoryId,
+            hkdId: currentHKD.id,
+            name: name,
+            description: description,
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            _synced: false,
+            _createdBy: 'hkd' // Đánh dấu HKD tự tạo
+        };
+        
+        // 1. Lưu vào IndexedDB (hiển thị ngay)
+        await updateInStore(STORES.CATEGORIES, categoryData);
+        
+        // 2. Cập nhật UI ngay
+        categories.push(categoryData);
+        updateCategoryList();
+        
+        // 3. Đóng modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('hkdCategoryModal'));
+        if (modal) modal.hide();
+        
+        Utils.showToast(`Đã thêm danh mục "${name}"`, 'success');
+        
+        // 4. Sync lên Firebase (admin sẽ thấy realtime)
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // Cấu trúc chuẩn trên Firebase
+                const categoryRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${categoryId}`
+                );
+                
+                const firebaseData = {
+                    name: name,
+                    description: description,
+                    createdAt: categoryData.createdAt,
+                    lastUpdated: categoryData.lastUpdated,
+                    products: {}, // Node products rỗng
+                    _syncedAt: new Date().toISOString(),
+                    _createdBy: 'hkd'
+                };
+                
+                await categoryRef.set(firebaseData);
+                
+                // Đánh dấu đã sync
+                categoryData._synced = true;
+                categoryData._syncedAt = new Date().toISOString();
+                await updateInStore(STORES.CATEGORIES, categoryData);
+                
+                console.log('✅ HKD đã tạo danh mục trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync category:', firebaseError);
+                await addToSyncQueue({
+                    type: 'categories',
+                    data: categoryData
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi thêm danh mục:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+async function saveHKDProduct() {
+    const productData = {
+        id: Utils.generateId(),
+        msp: document.getElementById('hkdProductCode').value.trim(),
+        name: document.getElementById('hkdProductName').value.trim(),
+        categoryId: document.getElementById('hkdProductCategory').value,
+        unit: document.getElementById('hkdProductUnit').value.trim() || 'cái',
+        price: parseFloat(document.getElementById('hkdProductPrice').value) || 0,
+        stock: parseInt(document.getElementById('hkdProductStock').value) || 0,
+        description: document.getElementById('hkdProductDescription').value.trim(),
+        lastUpdated: new Date().toISOString(),
+        _synced: false,
+        _createdBy: 'hkd'
+    };
+    
+    // Validation
+    if (!productData.msp || !productData.name || !productData.categoryId || productData.price <= 0) {
+        Utils.showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
+        return;
+    }
+    
+    Utils.showLoading('Đang lưu hàng hóa...');
+    
+    try {
+        // 1. Lưu vào IndexedDB (hiển thị ngay)
+        await updateInStore(STORES.PRODUCTS, { ...productData, hkdId: currentHKD.id });
+        
+        // 2. Cập nhật UI ngay
+        products.push({ ...productData, hkdId: currentHKD.id });
+        displayProducts();
+        
+        // 3. Đóng modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('hkdProductModal'));
+        if (modal) modal.hide();
+        
+        Utils.showToast(`Đã thêm sản phẩm "${productData.name}"`, 'success');
+        
+        // 4. Sync lên Firebase (admin sẽ thấy realtime)
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // Cấu trúc chuẩn: hkds/{hkdId}/categories/{categoryId}/products/{productId}
+                const productRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${productData.categoryId}/products/${productData.id}`
+                );
+                
+                const firebaseData = {
+                    msp: productData.msp,
+                    name: productData.name,
+                    unit: productData.unit,
+                    price: productData.price,
+                    stock: productData.stock,
+                    description: productData.description,
+                    lastUpdated: productData.lastUpdated,
+                    _syncedAt: new Date().toISOString(),
+                    _createdBy: 'hkd'
+                };
+                
+                await productRef.set(firebaseData);
+                
+                // Đánh dấu đã sync
+                productData._synced = true;
+                productData._syncedAt = new Date().toISOString();
+                await updateInStore(STORES.PRODUCTS, { ...productData, hkdId: currentHKD.id });
+                
+                console.log('✅ HKD đã tạo sản phẩm trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync product:', firebaseError);
+                await addToSyncQueue({
+                    type: 'products',
+                    data: { ...productData, hkdId: currentHKD.id }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi thêm hàng hóa:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+// Load dữ liệu quản lý HKD
+async function loadHKDManagementData() {
+    try {
+        // 1. Load danh mục (chỉ của HKD này)
+        const categoriesList = document.getElementById('hkdCategoriesList');
+        if (categoriesList) {
+            categoriesList.innerHTML = categories.map(category => `
+                <div class="col-md-4 mb-3">
+                    <div class="card category-management-card">
+                        <div class="card-body">
+                            <h6 class="card-title">${category.name}</h6>
+                            ${category.description ? `<p class="card-text small text-muted">${category.description}</p>` : ''}
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <i class="fas fa-box"></i> 
+                                    Sản phẩm: ${products.filter(p => p.categoryId === category.id).length}
+                                </small>
+                            </div>
+                            <div class="mt-2">
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="deleteHKDCategory('${category.id}')"
+                                        ${category._createdBy !== 'hkd' ? 'disabled title="Không thể xóa danh mục của Admin"' : ''}>
+                                    <i class="fas fa-trash"></i> Xóa
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            if (categories.length === 0) {
+                categoriesList.innerHTML = `
+                    <div class="col-12 text-center py-4">
+                        <i class="fas fa-folder-open fa-2x text-muted mb-2"></i>
+                        <p class="text-muted">Chưa có danh mục nào</p>
+                    </div>
+                `;
+            }
+        }
+        
+        // 2. Load hàng hóa vào table
+        const productsTable = document.getElementById('hkdProductsTable');
+        if (productsTable) {
+            productsTable.innerHTML = products.map(product => {
+                const category = categories.find(c => c.id === product.categoryId);
+                const categoryName = category ? category.name : 'Không xác định';
+                
+                return `
+                    <tr>
+                        <td><code>${product.msp || ''}</code></td>
+                        <td>
+                            <strong>${product.name}</strong>
+                            ${product.description ? `<br><small class="text-muted">${product.description}</small>` : ''}
+                        </td>
+                        <td>${categoryName}</td>
+                        <td>${Utils.formatCurrency(product.price)}</td>
+                        <td>${product.stock || 0}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="editHKDProduct('${product.id}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" 
+                                        onclick="deleteHKDProduct('${product.id}')"
+                                        ${product._createdBy !== 'hkd' ? 'disabled title="Không thể xóa hàng hóa của Admin"' : ''}>
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            if (products.length === 0) {
+                productsTable.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center py-4">
+                            <i class="fas fa-box-open fa-2x text-muted mb-2"></i>
+                            <p class="text-muted">Chưa có hàng hóa nào</p>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+        
+    } catch (error) {
+        console.error('❌ Lỗi load dữ liệu quản lý:', error);
+    }
+}
+// Xóa danh mục (HKD chỉ xóa được danh mục tự tạo)
+async function deleteHKDCategory(categoryId) {
+    const category = categories.find(c => c.id === categoryId);
+    if (!category) return;
+    
+    // Kiểm tra quyền: chỉ xóa được danh mục tự tạo
+    if (category._createdBy !== 'hkd') {
+        Utils.showToast('Không thể xóa danh mục của Admin', 'error');
+        return;
+    }
+    
+    const confirmed = await Utils.confirm(
+        `Xóa danh mục "${category.name}"? Tất cả sản phẩm trong danh mục sẽ bị xóa.`
+    );
+    if (!confirmed) return;
+    
+    Utils.showLoading('Đang xóa danh mục...');
+    
+    try {
+        // 1. Xóa sản phẩm trong danh mục
+        const categoryProducts = products.filter(p => p.categoryId === categoryId);
+        for (const product of categoryProducts) {
+            await deleteFromStore(STORES.PRODUCTS, product.id);
+        }
+        
+        // 2. Xóa danh mục
+        await deleteFromStore(STORES.CATEGORIES, categoryId);
+        
+        // 3. Cập nhật UI
+        categories = categories.filter(c => c.id !== categoryId);
+        products = products.filter(p => p.categoryId !== categoryId);
+        
+        // Reload cả trang bán hàng và modal quản lý
+        displayProducts();
+        updateCategoryList();
+        await loadHKDManagementData();
+        
+        Utils.showToast(`Đã xóa danh mục "${category.name}"`, 'success');
+        
+        // 4. Sync xóa lên Firebase
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // Xóa trên Firebase
+                const categoryRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${categoryId}`
+                );
+                await categoryRef.remove();
+                
+                console.log('✅ HKD đã xóa danh mục trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync delete category:', firebaseError);
+                await addToSyncQueue({
+                    type: 'categories_delete',
+                    data: {
+                        id: categoryId,
+                        hkdId: currentHKD.id
+                    }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi xóa danh mục:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+
+// Hàm gọi điện thoại
+function callSupport() {
+    const phone = '0932155035';
+    
+    if (confirm(`Bạn muốn gọi đến số ${phone}?`)) {
+        window.location.href = `tel:${phone}`;
+    }
+}
+
+// Hàm sao chép số điện thoại
+function copyPhoneNumber() {
+    const phone = '0932155035';
+    
+    navigator.clipboard.writeText(phone).then(() => {
+        Utils.showToast('Đã sao chép số điện thoại', 'success');
+    }).catch(err => {
+        console.error('Lỗi sao chép:', err);
+        Utils.showToast('Lỗi sao chép', 'error');
+    });
+}
 // Xuất các hàm global
 window.removeFromCart = removeFromCart;
 window.addToCart = addToCart;

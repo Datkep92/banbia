@@ -4,9 +4,273 @@ let selectedHKD = null;
 let allHKDs = [];
 let allInvoices = [];
 
-// Khởi tạo admin page
+async function syncall() {
+    try {
+        // 1. Tải CSS trước
+        loadDashboardStyles();
+
+        // 2. Khởi tạo hệ thống
+        await initSystem();
+// Sau khi setup event listeners
+        setupEventListeners();
+        
+        // Thêm nút sync vào header
+        createSyncButton();
+        // 3. Kiểm tra quyền admin
+        const user = getCurrentUser();
+        if (!user || user.role !== 'admin') {
+            window.location.href = 'login.html?type=admin';
+            return;
+        }
+
+        // 4. LUÔN sync toàn bộ dữ liệu khi vào trang Admin
+        if (navigator.onLine && typeof syncAllDataForAdmin === 'function') {
+            console.log('🔄 Admin: Tải lại toàn bộ dữ liệu từ server...');
+            Utils.showLoading('Đang tải dữ liệu từ server...');
+            await syncAllDataForAdmin();
+            Utils.hideLoading();
+        }
+
+        // 5. Lắng nghe realtime updates
+        listenForRealtimeUpdates();
+
+        // 6. Tải dữ liệu sau khi sync
+        await loadInitialData();
+
+        // 7. Setup event listeners
+        setupEventListeners();
+
+        // 8. Hiển thị dashboard
+        showDashboard();
+
+        // 9. Yêu cầu quyền thông báo
+        requestNotificationPermission();
+
+        console.log('✅ Admin page initialized');
+
+    } catch (error) {
+        console.error('❌ Lỗi khởi tạo admin page:', error);
+        Utils.showToast('Lỗi khởi tạo hệ thống', 'error');
+    }
+}
+// Tạo nút sync và gắn vào header
+function createSyncButton() {
+    // Kiểm tra nếu đã có nút sync rồi thì không tạo lại
+    if (document.getElementById('adminSyncButton')) {
+        return;
+    }
+    
+    // Tạo nút sync
+    const syncButton = document.createElement('button');
+    syncButton.id = 'adminSyncButton';
+    syncButton.className = 'btn-sync-admin';
+    syncButton.innerHTML = `
+        <i class="fas fa-sync-alt"></i>
+        <span class="sync-text">Đồng bộ</span>
+    `;
+    syncButton.title = 'Đồng bộ dữ liệu';
+    
+    // Thêm event listener
+    syncButton.addEventListener('click', async () => {
+        try {
+            // Đổi icon để hiển thị đang loading
+            syncButton.innerHTML = `
+                <i class="fas fa-spinner fa-spin"></i>
+                <span class="sync-text">Đang đồng bộ...</span>
+            `;
+            syncButton.disabled = true;
+            
+            // Gọi hàm syncall
+            await syncall();
+            
+            // Trở lại trạng thái ban đầu
+            syncButton.innerHTML = `
+                <i class="fas fa-sync-alt"></i>
+                <span class="sync-text">Đồng bộ</span>
+            `;
+            syncButton.disabled = false;
+            
+            // Hiệu ứng thành công
+            syncButton.classList.add('sync-success');
+            setTimeout(() => {
+                syncButton.classList.remove('sync-success');
+            }, 2000);
+            
+        } catch (error) {
+            console.error('❌ Lỗi khi đồng bộ:', error);
+            
+            // Hiển thị lỗi
+            syncButton.innerHTML = `
+                <i class="fas fa-exclamation-circle"></i>
+                <span class="sync-text">Lỗi</span>
+            `;
+            syncButton.classList.add('sync-error');
+            
+            // Sau 2 giây reset lại
+            setTimeout(() => {
+                syncButton.innerHTML = `
+                    <i class="fas fa-sync-alt"></i>
+                    <span class="sync-text">Đồng bộ</span>
+                `;
+                syncButton.classList.remove('sync-error');
+                syncButton.disabled = false;
+            }, 2000);
+        }
+    });
+    
+    // Tìm header và chèn nút vào
+    const header = document.querySelector('.main-header');
+    if (header) {
+        header.appendChild(syncButton);
+        console.log('✅ Đã thêm nút sync vào header');
+    } else {
+        // Fallback: chèn vào body
+        const userActions = document.querySelector('.user-actions') || 
+                           document.querySelector('.header-right');
+        if (userActions) {
+            userActions.prepend(syncButton);
+        } else {
+            document.body.prepend(syncButton);
+        }
+    }
+    
+    // Thêm CSS cho nút
+    addSyncButtonStyles();
+}
+
+// Thêm CSS cho nút sync (phiên bản đơn giản)
+function addSyncButtonStyles() {
+    if (document.getElementById('sync-button-styles')) return;
+    
+    const style = document.createElement('style');
+    style.id = 'sync-button-styles';
+    style.textContent = `
+        /* Nút đồng bộ trong header - Phiên bản đơn giản */
+        .btn-sync-admin {
+            background: rgba(255, 255, 255, 0.1); /* Nền trong suốt */
+            color: #4a6ee0; /* Màu chữ chính */
+            border: 1px solid rgba(74, 110, 224, 0.3); /* Viền nhẹ */
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(10px); /* Hiệu ứng blur nền */
+            margin-left: 8px;
+        }
+        
+        .btn-sync-admin:hover {
+            background: rgba(74, 110, 224, 0.1); /* Nền nhẹ khi hover */
+            border-color: rgba(74, 110, 224, 0.5);
+            transform: translateY(-1px);
+        }
+        
+        .btn-sync-admin:active {
+            transform: translateY(0);
+            background: rgba(74, 110, 224, 0.15);
+        }
+        
+        .btn-sync-admin:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .btn-sync-admin .sync-text {
+            font-size: 13px;
+        }
+        
+        /* Trạng thái đang đồng bộ */
+        .btn-sync-admin.syncing {
+            color: #f59e0b; /* Màu vàng cam */
+            border-color: rgba(245, 158, 11, 0.3);
+            background: rgba(245, 158, 11, 0.1);
+        }
+        
+        /* Hiệu ứng thành công */
+        .btn-sync-admin.sync-success {
+            color: #10b981; /* Màu xanh lá */
+            border-color: rgba(16, 185, 129, 0.3);
+            background: rgba(16, 185, 129, 0.1);
+        }
+        
+        /* Hiệu ứng lỗi */
+        .btn-sync-admin.sync-error {
+            color: #ef4444; /* Màu đỏ */
+            border-color: rgba(239, 68, 68, 0.3);
+            background: rgba(239, 68, 68, 0.1);
+        }
+        
+        /* Animation xoay */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .fa-spinner {
+            animation: spin 1s linear infinite;
+        }
+        
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            .btn-sync-admin {
+                background: rgba(255, 255, 255, 0.05);
+                color: #7b9bff; /* Màu sáng hơn cho dark mode */
+                border-color: rgba(123, 155, 255, 0.2);
+            }
+            
+            .btn-sync-admin:hover {
+                background: rgba(123, 155, 255, 0.1);
+                border-color: rgba(123, 155, 255, 0.4);
+            }
+            
+            .btn-sync-admin:active {
+                background: rgba(123, 155, 255, 0.15);
+            }
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .btn-sync-admin {
+                padding: 5px 8px;
+                font-size: 12px;
+            }
+            
+            .btn-sync-admin .sync-text {
+                display: none; /* Ẩn text trên mobile */
+            }
+        }
+    `;
+    
+    document.head.appendChild(style);
+}
+
+
+
 async function initAdminPage() {
     try {
+         // KIỂM TRA VÀ SYNC NẾU DỮ LIỆU TRỐNG
+    // THÊM: ĐỒNG BỘ DỮ LIỆU SAU KHI KHỞI TẠO
+    setTimeout(async () => {
+        // Kiểm tra nếu dữ liệu trống
+        const allHKDs = await getAllHKDs();
+        const allProducts = await getAllFromStore(STORES.PRODUCTS);
+        
+        if ((allHKDs.length === 0 || allProducts.length === 0) && navigator.onLine) {
+            console.log('📭 Admin: Dữ liệu trống, thực hiện auto sync...');
+            
+            if (typeof syncAllDataForAdmin === 'function') {
+                Utils.showLoading('Đang tải dữ liệu từ server...');
+                await syncAllDataForAdmin();
+                await loadInitialData();
+                Utils.hideLoading();
+            }
+        }
+    }, 2000);
         // TẢI CSS TRƯỚC KHI KHỞI TẠO
         loadDashboardStyles();
         // Khởi tạo toàn bộ hệ thống
@@ -27,7 +291,11 @@ async function initAdminPage() {
         
         // Setup event listeners
         setupEventListeners();
+        // Sau khi setup event listeners
+        setupEventListeners();
         
+        // Thêm nút sync vào header
+        createSyncButton();
         // Hiển thị thông tin admin
         //displayAdminInfo();
         
@@ -43,6 +311,39 @@ async function initAdminPage() {
         Utils.showToast('Lỗi khởi tạo hệ thống', 'error');
     }
 }
+
+async function loadInitialData() {
+    console.log('📂 Đang tải dữ liệu local...');
+    
+    try {
+        // Tải danh sách HKD từ IndexedDB
+        allHKDs = await getAllHKDs();
+        allHKDs = allHKDs.filter(hkd => hkd.role === 'hkd');
+        
+        console.log(`📊 Local có ${allHKDs.length} HKD`);
+         // Sau khi setup event listeners
+        setupEventListeners();
+        
+        // Thêm nút sync vào header
+        createSyncButton();
+        // Tải hóa đơn từ IndexedDB
+        if (allHKDs.length > 0) {
+            await loadAllInvoices();
+        } else {
+            allInvoices = [];
+        }
+        
+        console.log(`📊 Local có ${allInvoices.length} invoices`);
+        
+    } catch (error) {
+        console.error('Lỗi tải dữ liệu local:', error);
+        // Không show toast để không làm phiền user
+        // Reset mảng để tránh lỗi
+        allHKDs = [];
+        allInvoices = [];
+    }
+}
+
 // Tải dữ liệu ban đầu
 async function loadInitialData() {
     Utils.showLoading('Đang tải dữ liệu...');
@@ -66,7 +367,128 @@ async function loadInitialData() {
         Utils.hideLoading();
     }
 }
-
+async function saveHKD() {
+    const saveButton = document.getElementById('saveHKD');
+    if (saveButton.disabled) {
+        return;
+    }
+    
+    saveButton.disabled = true;
+    saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang lưu...';
+    
+    try {
+        const name = document.getElementById('hkdName').value;
+        const phone = document.getElementById('hkdPhone').value;
+        const address = document.getElementById('hkdAddress').value;
+        const password = document.getElementById('hkdPassword').value;
+        
+        if (!name || !phone || !password) {
+            Utils.showToast('Vui lòng nhập đầy đủ thông tin', 'error');
+            saveButton.disabled = false;
+            saveButton.innerHTML = 'Lưu';
+            return;
+        }
+        
+        if (!Utils.validatePhone(phone)) {
+            Utils.showToast('Số điện thoại không hợp lệ', 'error');
+            saveButton.disabled = false;
+            saveButton.innerHTML = 'Lưu';
+            return;
+        }
+        
+        Utils.showLoading('Đang lưu HKD...');
+        
+        // 3. Tạo HKD data
+        const hkdId = Utils.generateId();
+        const hkdData = {
+            id: hkdId,
+            name: name,
+            phone: phone,
+            address: address,
+            password: password,
+            role: 'hkd',
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            _synced: false // Chưa sync lên Firebase
+        };
+        
+        // CÁCH 1: Sử dụng trực tiếp IndexedDB API (BỎ QUA HÀM updateInStore)
+        const db = await getDB();
+        
+        const tx = db.transaction([STORES.HKDS], 'readwrite');
+        const store = tx.objectStore(STORES.HKDS);
+        
+        // Kiểm tra xem số điện thoại đã tồn tại chưa
+        const index = store.index('phone');
+        const checkRequest = index.get(phone);
+        
+        await new Promise((resolve, reject) => {
+            checkRequest.onsuccess = (e) => {
+                if (e.target.result) {
+                    reject(new Error('Số điện thoại đã tồn tại'));
+                    return;
+                }
+                
+                // Lưu HKD mới
+                const putRequest = store.put(hkdData);
+                putRequest.onsuccess = () => {
+                    console.log('✅ Đã lưu HKD vào IndexedDB với ID:', hkdId);
+                    resolve();
+                };
+                putRequest.onerror = () => reject(putRequest.error);
+            };
+            
+            checkRequest.onerror = () => reject(checkRequest.error);
+        });
+        
+        // Cập nhật danh sách local
+        allHKDs.push(hkdData);
+        
+        // Thêm vào sync queue
+        await addToSyncQueue({
+            type: 'hkds',
+            data: hkdData
+        });
+        
+        // Update UI
+        updateHKDList();
+        
+        // Đóng modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('addHKDModal'));
+        if (modal) {
+            modal.hide();
+        }
+        
+        // Reset form
+        document.getElementById('hkdForm').reset();
+        
+        Utils.showToast('Đã thêm HKD thành công', 'success');
+        
+        // TEST: Kiểm tra ngay lập tức
+        console.log('🔍 Kiểm tra HKD vừa tạo...');
+        const testHKD = await getFromStore(STORES.HKDS, hkdId);
+        console.log('HKD từ IndexedDB:', testHKD);
+        
+        // Đồng bộ ngay
+        if (navigator.onLine && typeof forceSync === 'function') {
+            setTimeout(async () => {
+                try {
+                    await forceSync();
+                } catch (syncError) {
+                    console.error('Lỗi sync:', syncError);
+                }
+            }, 500);
+        }
+        
+    } catch (error) {
+        console.error('❌ Lỗi lưu HKD:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+        saveButton.disabled = false;
+        saveButton.innerHTML = 'Lưu';
+    }
+}
 async function loadAllInvoices() {
     console.log('📥 Đang tải tất cả hóa đơn...');
     
@@ -524,8 +946,135 @@ function filterProducts() {
         });
     });
 }
-
-// Tìm hàm saveCategory trong admin.js
+async function saveProduct() {
+    const hkdId = document.getElementById('manageHKD').value;
+    if (!hkdId) {
+        Utils.showToast('Vui lòng chọn HKD', 'error');
+        return;
+    }
+    
+    // Lấy ID sản phẩm đang sửa (nếu có)
+    const editProductId = document.getElementById('editProductId').value;
+    const isEdit = !!editProductId;
+    
+    // Lấy dữ liệu form
+    const productData = {
+        id: isEdit ? editProductId : Utils.generateId(),
+        msp: document.getElementById('productCode').value.trim(),
+        name: document.getElementById('productName').value.trim(),
+        categoryId: document.getElementById('productCategory').value, // DANH MỤC MỚI
+        unit: document.getElementById('productUnit').value.trim() || 'cái',
+        price: parseFloat(document.getElementById('productPrice').value) || 0,
+        stock: parseInt(document.getElementById('productStock').value) || 0,
+        cost: parseFloat(document.getElementById('productCost').value) || null,
+        description: document.getElementById('productDescription').value.trim(),
+        note: document.getElementById('productNote').value.trim(),
+        lastUpdated: new Date().toISOString(),
+        _synced: false
+    };
+    
+    // Validation
+    if (!productData.msp || !productData.name || !productData.categoryId || productData.price <= 0) {
+        Utils.showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
+        return;
+    }
+    
+    Utils.showLoading('Đang lưu...');
+    
+    try {
+        // ==================== QUAN TRỌNG: XỬ LÝ KHI SỬA ====================
+        let oldCategoryId = null;
+        
+        if (isEdit) {
+            // Lấy thông tin sản phẩm cũ để biết categoryId cũ
+            const oldProduct = await getFromStore(STORES.PRODUCTS, editProductId);
+            if (oldProduct) {
+                oldCategoryId = oldProduct.categoryId;
+                console.log(`🔄 Sửa sản phẩm: từ category ${oldCategoryId} → ${productData.categoryId}`);
+            }
+        }
+        
+        // 1. LƯU VÀO INDEXEDDB NGAY
+        await updateInStore(STORES.PRODUCTS, { ...productData, hkdId });
+        
+        // 2. CẬP NHẬT UI NGAY
+        await loadCategoriesAndProducts(hkdId);
+        Utils.showToast(`Đã ${isEdit ? 'cập nhật' : 'thêm'} hàng hóa`, 'success');
+        
+        // 3. Đóng modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('addProductModal'));
+        if (modal) modal.hide();
+        
+        // Reset form
+        document.getElementById('productForm').reset();
+        document.getElementById('editProductId').value = '';
+        document.getElementById('productModalTitle').textContent = 'Thêm hàng hóa mới';
+        
+        // 4. SYNC LÊN FIREBASE SAU (QUAN TRỌNG: XỬ LÝ ĐỔI DANH MỤC)
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // ==================== TRƯỜNG HỢP SỬA VÀ ĐỔI DANH MỤC ====================
+                if (isEdit && oldCategoryId && oldCategoryId !== productData.categoryId) {
+                    console.log(`🔄 Sản phẩm đổi danh mục: xóa ở ${oldCategoryId}, thêm vào ${productData.categoryId}`);
+                    
+                    // Xóa sản phẩm cũ ở danh mục cũ
+                    const oldProductRef = firebase.database().ref(
+                        `hkds/${hkdId}/categories/${oldCategoryId}/products/${productData.id}`
+                    );
+                    await oldProductRef.remove();
+                    
+                    console.log(`✅ Đã xóa sản phẩm khỏi danh mục cũ: ${oldCategoryId}`);
+                }
+                
+                // Lưu sản phẩm vào danh mục mới
+                const productRef = firebase.database().ref(
+                    `hkds/${hkdId}/categories/${productData.categoryId}/products/${productData.id}`
+                );
+                
+                const firebaseProductData = {
+                    msp: productData.msp,
+                    name: productData.name,
+                    unit: productData.unit,
+                    price: productData.price,
+                    stock: productData.stock,
+                    cost: productData.cost,
+                    description: productData.description,
+                    note: productData.note,
+                    lastUpdated: productData.lastUpdated,
+                    _syncedAt: new Date().toISOString()
+                };
+                
+                await productRef.set(firebaseProductData);
+                
+                // Đánh dấu đã sync
+                productData._synced = true;
+                productData._syncedAt = new Date().toISOString();
+                await updateInStore(STORES.PRODUCTS, { ...productData, hkdId });
+                
+                console.log(`✅ Đã ${isEdit ? 'cập nhật' : 'thêm'} sản phẩm trên Firebase`);
+                
+            } catch (error) {
+                console.error('❌ Lỗi sync product:', error);
+                await addToSyncQueue({
+                    type: 'products',
+                    data: { 
+                        ...productData, 
+                        hkdId,
+                        oldCategoryId: isEdit ? oldCategoryId : null // Lưu cả categoryId cũ để xử lý sau
+                    }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi lưu hàng hóa:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
 async function saveCategory() {
     const hkdId = document.getElementById('manageHKD').value;
     if (!hkdId) {
@@ -541,18 +1090,10 @@ async function saveCategory() {
         return;
     }
     
+    Utils.showLoading('Đang lưu...');
+    
     try {
-        // Kiểm tra xem danh mục đã tồn tại chưa
-        const existingCategories = await getCategoriesByHKD(hkdId);
-        const duplicate = existingCategories.find(cat => 
-            cat.name.toLowerCase() === name.toLowerCase() && cat._deleted !== true
-        );
-        
-        if (duplicate) {
-            Utils.showToast('Tên danh mục đã tồn tại', 'error');
-            return;
-        }
-        
+        // Tạo category data
         const categoryId = Utils.generateId();
         const categoryData = {
             id: categoryId,
@@ -561,48 +1102,62 @@ async function saveCategory() {
             description: description,
             createdAt: new Date().toISOString(),
             lastUpdated: new Date().toISOString(),
-            _synced: false,
-            _deleted: false // Đảm bảo không bị đánh dấu xóa
+            _synced: false
         };
         
-        console.log('📝 Tạo danh mục mới:', categoryData);
+        // 1. LƯU INDEXEDDB NGAY
+        await updateInStore(STORES.CATEGORIES, categoryData);
         
-        // 1. Lưu vào IndexedDB
-        await saveCategoryToIndexedDB(categoryData);
-        
-        // 2. Thêm vào sync queue
-        await addToSyncQueue({
-            type: 'categories',
-            data: categoryData
-        });
+        // 2. CẬP NHẬT UI NGAY
+        await loadCategoriesAndProducts(hkdId);
+        Utils.showToast('Đã thêm danh mục', 'success');
         
         // 3. Đóng modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('addCategoryModal'));
         if (modal) modal.hide();
         
-        // 4. Reset form
-        document.getElementById('addCategoryForm').reset();
-        
-        // 5. Reload data
-        await loadCategoriesAndProducts(hkdId);
-        
-        Utils.showToast('Đã thêm danh mục thành công', 'success');
-        
-        // 6. Sync ngay nếu online
-        if (navigator.onLine) {
-            setTimeout(async () => {
-                try {
-                    await forceSync();
-                    console.log('✅ Đã đồng bộ danh mục lên Firebase');
-                } catch (error) {
-                    console.error('❌ Lỗi sync danh mục:', error);
-                }
-            }, 500);
-        }
+        // 4. SYNC LÊN FIREBASE SAU (cấu trúc mới)
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // CẤU TRÚC MỚI: hkds/{hkdId}/categories/{categoryId}
+                const categoryRef = firebase.database().ref(
+                    `hkds/${hkdId}/categories/${categoryId}`
+                );
+                
+                const firebaseData = {
+                    name: name,
+                    description: description,
+                    createdAt: categoryData.createdAt,
+                    lastUpdated: categoryData.lastUpdated,
+                    products: {}, // Tạo node products rỗng
+                    _syncedAt: new Date().toISOString()
+                };
+                
+                await categoryRef.set(firebaseData);
+                
+                // Đánh dấu đã sync
+                categoryData._synced = true;
+                categoryData._syncedAt = new Date().toISOString();
+                await updateInStore(STORES.CATEGORIES, categoryData);
+                
+                console.log('✅ Đã sync category lên Firebase');
+                
+            } catch (error) {
+                console.error('❌ Lỗi sync category:', error);
+                await addToSyncQueue({
+                    type: 'categories',
+                    data: categoryData
+                });
+            }
+        }, 100);
         
     } catch (error) {
         console.error('❌ Lỗi thêm danh mục:', error);
-        Utils.showToast('Lỗi thêm danh mục: ' + error.message, 'error');
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
     }
 }
 
@@ -762,37 +1317,65 @@ async function editCategory(categoryId) {
 // Sửa hàng hóa
 async function editProduct(productId) {
     const hkdId = document.getElementById('manageHKD').value;
-    if (!hkdId) return;
+    if (!hkdId) {
+        Utils.showToast('Vui lòng chọn HKD', 'warning');
+        return;
+    }
     
     try {
-        const products = await getProductsByHKD(hkdId);
-        const product = products.find(p => p.id === productId);
+        // Lấy sản phẩm từ IndexedDB
+        const product = await getFromStore(STORES.PRODUCTS, productId);
         
-        if (product) {
-            document.getElementById('productCode').value = product.msp || '';
-            document.getElementById('productName').value = product.name;
-            document.getElementById('productUnit').value = product.unit || 'cái';
-            document.getElementById('productPrice').value = product.price || 0;
-            document.getElementById('productStock').value = product.stock || 0;
-            document.getElementById('productCost').value = product.cost || '';
-            document.getElementById('productDescription').value = product.description || '';
-            document.getElementById('productNote').value = product.note || '';
-            document.getElementById('editProductId').value = product.id;
-            
-            // Populate categories và chọn đúng
-            const categories = await getCategoriesByHKD(hkdId);
-            populateCategorySelects(categories);
-            document.getElementById('productCategory').value = product.categoryId;
-            
-            // Update modal title
-            document.getElementById('productModalTitle').textContent = 'Sửa hàng hóa';
-            
-            // Show modal
-            const modal = new bootstrap.Modal(document.getElementById('addProductModal'));
-            modal.show();
+        if (!product) {
+            Utils.showToast('Không tìm thấy sản phẩm', 'error');
+            return;
         }
+        
+        console.log('✏️ Editing product:', product);
+        
+        // Điền dữ liệu vào form
+        document.getElementById('productCode').value = product.msp || '';
+        document.getElementById('productName').value = product.name || '';
+        document.getElementById('productUnit').value = product.unit || 'cái';
+        document.getElementById('productPrice').value = product.price || 0;
+        document.getElementById('productStock').value = product.stock || 0;
+        document.getElementById('productCost').value = product.cost || '';
+        document.getElementById('productDescription').value = product.description || '';
+        document.getElementById('productNote').value = product.note || '';
+        
+        // QUAN TRỌNG: Lưu ID sản phẩm đang sửa
+        document.getElementById('editProductId').value = product.id;
+        
+        // Populate danh mục và chọn đúng
+        const categories = await getCategoriesByHKD(hkdId);
+        const categorySelect = document.getElementById('productCategory');
+        
+        // Clear và thêm options
+        categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
+        categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.id;
+            option.textContent = cat.name;
+            categorySelect.appendChild(option);
+        });
+        
+        // Chọn đúng danh mục của sản phẩm
+        if (product.categoryId) {
+            categorySelect.value = product.categoryId;
+        }
+        
+        // Cập nhật title modal
+        document.getElementById('productModalTitle').textContent = 'Sửa hàng hóa';
+        
+        // Hiển thị modal
+        const modal = new bootstrap.Modal(document.getElementById('addProductModal'));
+        modal.show();
+        
+        console.log(`✅ Form loaded for editing product: ${product.name}`);
+        
     } catch (error) {
-        console.error('Lỗi sửa hàng hóa:', error);
+        console.error('❌ Lỗi sửa hàng hóa:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
     }
 }
 
@@ -881,108 +1464,90 @@ async function confirmDelete() {
     const type = document.getElementById('deleteItemType').value;
     const hkdId = document.getElementById('manageHKD').value;
     
-    if (!id || !type || !hkdId) {
-        console.error('❌ Thiếu thông tin để xóa:', { id, type, hkdId });
-        Utils.showToast('Thiếu thông tin để xóa', 'error');
-        return;
-    }
+    if (!id || !type || !hkdId) return;
     
-    Utils.showLoading(`Đang xóa ${type === 'category' ? 'danh mục' : 'hàng hóa'}...`);
+    Utils.showLoading('Đang xóa...');
     
     try {
         if (type === 'category') {
-            // 1. Lấy thông tin danh mục
-            const category = await getFromStore(STORES.CATEGORIES, id);
+            // 1. XÓA DANH MỤC VÀ SẢN PHẨM TRONG INDEXEDDB
+            const products = await getProductsByHKD(hkdId);
+            const categoryProducts = products.filter(p => p.categoryId === id);
             
-            if (!category) {
-                Utils.showToast('Không tìm thấy danh mục', 'error');
-                return;
-            }
-            
-            // 2. Lấy TẤT CẢ hàng hóa trong danh mục này
-            const allProducts = await getProductsByHKD(hkdId);
-            const categoryProducts = allProducts.filter(p => p.categoryId === id);
-            
-            console.log(`🗑️ Xóa danh mục ${category.name} và ${categoryProducts.length} hàng hóa`);
-            
-            // 3. Xóa TẤT CẢ hàng hóa trong danh mục
+            // Xóa sản phẩm
             for (const product of categoryProducts) {
-                // Xóa từ IndexedDB
                 await deleteFromStore(STORES.PRODUCTS, product.id);
-                console.log(`  - Đã xóa hàng hóa: ${product.name}`);
-                
-                // Thêm vào sync queue để xóa trên Firebase
-                await addToSyncQueue({
-                    type: 'products_delete',
-                    data: { 
-                        id: product.id,
-                        hkdId: hkdId,
-                        categoryId: id
-                    }
-                });
             }
             
-            // 4. Xóa danh mục
+            // Xóa danh mục
             await deleteFromStore(STORES.CATEGORIES, id);
             
-            // 5. Thêm vào sync queue để xóa trên Firebase
-            await addToSyncQueue({
-                type: 'categories_delete',
-                data: { 
-                    id: id,
-                    hkdId: hkdId
-                }
-            });
+            // 2. CẬP NHẬT UI NGAY
+            await loadCategoriesAndProducts(hkdId);
+            Utils.showToast(`Đã xóa danh mục và ${categoryProducts.length} sản phẩm`, 'success');
             
-            Utils.showToast(`Đã xóa danh mục và ${categoryProducts.length} hàng hóa`, 'success');
+            // 3. SYNC XÓA LÊN FIREBASE SAU
+            setTimeout(async () => {
+                try {
+                    await initFirebase();
+                    
+                    // Xóa trên Firebase (cấu trúc mới)
+                    const categoryRef = firebase.database().ref(`hkds/${hkdId}/categories/${id}`);
+                    await categoryRef.remove();
+                    
+                    console.log('✅ Đã xóa category trên Firebase');
+                    
+                } catch (error) {
+                    console.error('❌ Lỗi xóa Firebase:', error);
+                    await addToSyncQueue({
+                        type: 'categories_delete',
+                        data: { id, hkdId }
+                    });
+                }
+            }, 100);
             
         } else if (type === 'product') {
-            // 1. Lấy thông tin sản phẩm
+            // 1. Lấy thông tin sản phẩm để biết categoryId
             const product = await getFromStore(STORES.PRODUCTS, id);
+            if (!product) return;
             
-            if (!product) {
-                Utils.showToast('Không tìm thấy sản phẩm', 'error');
-                return;
-            }
-            
-            // 2. Xóa sản phẩm từ IndexedDB
+            // 2. XÓA TRONG INDEXEDDB
             await deleteFromStore(STORES.PRODUCTS, id);
             
-            // 3. Thêm vào sync queue để xóa trên Firebase
-            await addToSyncQueue({
-                type: 'products_delete',
-                data: { 
-                    id: id,
-                    hkdId: hkdId,
-                    categoryId: product.categoryId
-                }
-            });
+            // 3. CẬP NHẬT UI NGAY
+            await loadCategoriesAndProducts(hkdId);
+            Utils.showToast('Đã xóa hàng hóa', 'success');
             
-            Utils.showToast(`Đã xóa hàng hóa ${product.name}`, 'success');
+            // 4. SYNC XÓA LÊN FIREBASE SAU
+            setTimeout(async () => {
+                try {
+                    await initFirebase();
+                    
+                    // Xóa trên Firebase (cấu trúc mới)
+                    const productRef = firebase.database().ref(
+                        `hkds/${hkdId}/categories/${product.categoryId}/products/${id}`
+                    );
+                    await productRef.remove();
+                    
+                    console.log('✅ Đã xóa product trên Firebase');
+                    
+                } catch (error) {
+                    console.error('❌ Lỗi xóa Firebase:', error);
+                    await addToSyncQueue({
+                        type: 'products_delete',
+                        data: { id, hkdId, categoryId: product.categoryId }
+                    });
+                }
+            }, 100);
         }
         
         // Đóng modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('confirmDeleteModal'));
         if (modal) modal.hide();
         
-        // Reload data
-        await loadCategoriesAndProducts(hkdId);
-        
-        // Sync ngay nếu online
-        if (navigator.onLine) {
-            setTimeout(async () => {
-                try {
-                    await forceSync();
-                    console.log('✅ Đã đồng bộ xóa lên Firebase');
-                } catch (error) {
-                    console.error('❌ Lỗi sync sau khi xóa:', error);
-                }
-            }, 500);
-        }
-        
     } catch (error) {
         console.error('❌ Lỗi xóa:', error);
-        Utils.showToast('Lỗi xóa: ' + error.message, 'error');
+        Utils.showToast('Lỗi: ' + error.message, 'error');
     } finally {
         Utils.hideLoading();
     }
@@ -1903,130 +2468,55 @@ function searchHKDs() {
     `).join('');
 }
 
-async function saveHKD() {
-    const saveButton = document.getElementById('saveHKD');
-    if (saveButton.disabled) {
-        return;
-    }
+
+// Hàm helper để cập nhật tất cả dropdown HKD
+function updateHKDSelects() {
+    console.log('🔄 Cập nhật tất cả dropdown HKD...');
     
-    saveButton.disabled = true;
-    saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang lưu...';
+    // Danh sách các select cần cập nhật
+    const selectIds = [
+        'invoiceHKD',      // Trong tab invoices
+        'importHKD',       // Trong tab import
+        'manageHKD'        // Trong tab import (management)
+    ];
     
-    try {
-        const name = document.getElementById('hkdName').value;
-        const phone = document.getElementById('hkdPhone').value;
-        const address = document.getElementById('hkdAddress').value;
-        const password = document.getElementById('hkdPassword').value;
-        
-        if (!name || !phone || !password) {
-            Utils.showToast('Vui lòng nhập đầy đủ thông tin', 'error');
-            saveButton.disabled = false;
-            saveButton.innerHTML = 'Lưu';
-            return;
+    selectIds.forEach(selectId => {
+        const select = document.getElementById(selectId);
+        if (select) {
+            updateSingleHKDSelect(select);
         }
-        
-        if (!Utils.validatePhone(phone)) {
-            Utils.showToast('Số điện thoại không hợp lệ', 'error');
-            saveButton.disabled = false;
-            saveButton.innerHTML = 'Lưu';
-            return;
-        }
-        
-        Utils.showLoading('Đang lưu HKD...');
-        
-        // TẠO ID
-        const hkdId = Utils.generateId();
-        const hkdData = {
-            id: hkdId,
-            name: name,
-            phone: phone,
-            address: address,
-            password: password, // QUAN TRỌNG
-            role: 'hkd',
-            createdAt: new Date().toISOString(),
-            lastUpdated: new Date().toISOString()
-        };
-        
-        console.log('📝 Tạo HKD data:', hkdData);
-        
-        // CÁCH 1: Sử dụng trực tiếp IndexedDB API (BỎ QUA HÀM updateInStore)
-        const db = await getDB();
-        
-        const tx = db.transaction([STORES.HKDS], 'readwrite');
-        const store = tx.objectStore(STORES.HKDS);
-        
-        // Kiểm tra xem số điện thoại đã tồn tại chưa
-        const index = store.index('phone');
-        const checkRequest = index.get(phone);
-        
-        await new Promise((resolve, reject) => {
-            checkRequest.onsuccess = (e) => {
-                if (e.target.result) {
-                    reject(new Error('Số điện thoại đã tồn tại'));
-                    return;
-                }
-                
-                // Lưu HKD mới
-                const putRequest = store.put(hkdData);
-                putRequest.onsuccess = () => {
-                    console.log('✅ Đã lưu HKD vào IndexedDB với ID:', hkdId);
-                    resolve();
-                };
-                putRequest.onerror = () => reject(putRequest.error);
-            };
-            
-            checkRequest.onerror = () => reject(checkRequest.error);
-        });
-        
-        // Cập nhật danh sách local
-        allHKDs.push(hkdData);
-        
-        // Thêm vào sync queue
-        await addToSyncQueue({
-            type: 'hkds',
-            data: hkdData
-        });
-        
-        // Update UI
-        updateHKDList();
-        
-        // Đóng modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('addHKDModal'));
-        if (modal) {
-            modal.hide();
-        }
-        
-        // Reset form
-        document.getElementById('hkdForm').reset();
-        
-        Utils.showToast('Đã thêm HKD thành công', 'success');
-        
-        // TEST: Kiểm tra ngay lập tức
-        console.log('🔍 Kiểm tra HKD vừa tạo...');
-        const testHKD = await getFromStore(STORES.HKDS, hkdId);
-        console.log('HKD từ IndexedDB:', testHKD);
-        
-        // Đồng bộ ngay
-        if (navigator.onLine && typeof forceSync === 'function') {
-            setTimeout(async () => {
-                try {
-                    await forceSync();
-                } catch (syncError) {
-                    console.error('Lỗi sync:', syncError);
-                }
-            }, 500);
-        }
-        
-    } catch (error) {
-        console.error('❌ Lỗi lưu HKD:', error);
-        Utils.showToast('Lỗi: ' + error.message, 'error');
-    } finally {
-        Utils.hideLoading();
-        saveButton.disabled = false;
-        saveButton.innerHTML = 'Lưu';
-    }
+    });
 }
 
+// Cập nhật một select cụ thể
+function updateSingleHKDSelect(selectElement) {
+    if (!selectElement) return;
+    
+    // Lưu giá trị hiện tại
+    const currentValue = selectElement.value;
+    
+    // Xóa tất cả options trừ option đầu tiên
+    while (selectElement.options.length > 1) {
+        selectElement.remove(1);
+    }
+    
+    // Thêm từng HKD
+    allHKDs.forEach(hkd => {
+        if (hkd && hkd.role === 'hkd') {
+            const option = document.createElement('option');
+            option.value = hkd.id;
+            option.textContent = `${hkd.name} (${hkd.phone})`;
+            selectElement.appendChild(option);
+        }
+    });
+    
+    // Khôi phục giá trị cũ nếu còn tồn tại
+    if (currentValue && selectElement.querySelector(`option[value="${currentValue}"]`)) {
+        selectElement.value = currentValue;
+    }
+    
+    console.log(`✅ Đã cập nhật select ${selectElement.id} với ${allHKDs.length} HKD`);
+}
 function editHKD(hkdId) {
     console.log(`✏️ Editing HKD: ${hkdId}`);
     
@@ -2711,79 +3201,154 @@ async function processExcelImport() {
     Utils.showLoading('Đang xử lý dữ liệu...');
     
     try {
-        // Parse Excel data
-        const products = parseExcelData(window.excelData);
+        // Parse Excel data với cấu trúc mới
+        const { products, categories } = parseExcelDataForNewStructure(window.excelData, hkdId);
         
-        // Lấy HKD info
-        const hkd = allHKDs.find(h => h.id === hkdId);
-        if (!hkd) throw new Error('Không tìm thấy HKD');
+        console.log(`📊 Dữ liệu parse: ${categories.length} danh mục, ${products.length} sản phẩm`);
         
-        if (importMode === 'replace') {
-            // Xóa sản phẩm cũ
-            const oldProducts = await getProductsByHKD(hkdId);
-            for (const product of oldProducts) {
-                await deleteFromStore(STORES.PRODUCTS, product.id);
-            }
+        // Xử lý danh mục trước
+        const categoryMap = {}; // Map category name → categoryId
+        await initFirebase();
+        
+        for (const category of categories) {
+            // Tạo hoặc lấy categoryId
+            let categoryId = category.id;
+            
+            // Lưu lên Firebase với cấu trúc chuẩn
+            const categoryRef = firebase.database().ref(`hkds/${hkdId}/categories/${categoryId}`);
+            await categoryRef.set({
+                name: category.name,
+                description: category.description || '',
+                createdAt: category.createdAt,
+                lastUpdated: category.lastUpdated,
+                products: {} // ← Tạo node products rỗng
+            });
+            
+            // Lưu vào IndexedDB
+            await saveCategoryToIndexedDB(category);
+            
+            categoryMap[category.name] = categoryId;
+            console.log(`✅ Đã tạo danh mục: ${category.name} (${categoryId})`);
         }
         
-        // Xử lý danh mục
-        const categories = {};
+        // Xử lý sản phẩm
+        let successCount = 0;
+        
         for (const product of products) {
-            const categoryName = product.category || 'Khác';
-            if (!categories[categoryName]) {
-                const categoryId = Utils.generateId();
-                categories[categoryName] = {
-                    id: categoryId,
-                    name: categoryName,
-                    hkdId: hkdId,
-                    createdAt: new Date().toISOString()
+            try {
+                const categoryId = categoryMap[product.categoryName];
+                if (!categoryId) {
+                    console.warn(`⚠️ Bỏ qua sản phẩm ${product.name}: không tìm thấy danh mục "${product.categoryName}"`);
+                    continue;
+                }
+                
+                // Gán categoryId
+                product.categoryId = categoryId;
+                
+                // 1. Lưu vào IndexedDB
+                await saveProductToIndexedDB(product);
+                
+                // 2. Lưu lên Firebase với cấu trúc chuẩn
+                const productRef = firebase.database().ref(
+                    `hkds/${hkdId}/categories/${categoryId}/products/${product.id}`
+                );
+                
+                const firebaseProductData = {
+                    msp: product.msp,
+                    name: product.name,
+                    unit: product.unit,
+                    price: product.price,
+                    stock: product.stock,
+                    description: product.description || '',
+                    note: product.note || '',
+                    lastUpdated: product.lastUpdated,
+                    _synced: true
                 };
+                
+                await productRef.set(firebaseProductData);
+                
+                successCount++;
+                console.log(`✅ Đã import: ${product.name} vào danh mục ${product.categoryName}`);
+                
+            } catch (productError) {
+                console.error(`❌ Lỗi import sản phẩm ${product.name}:`, productError);
             }
-            product.categoryId = categories[categoryName].id;
-        }
-        
-        // Lưu danh mục
-        for (const category of Object.values(categories)) {
-            await saveCategory(category);
-            
-            // Thêm vào sync queue
-            await addToSyncQueue({
-                type: 'categories',
-                data: category
-            });
-        }
-        
-        // Lưu sản phẩm
-        for (const product of products) {
-            product.hkdId = hkdId;
-            product.lastUpdated = new Date().toISOString();
-            
-            await saveProduct(product);
-            
-            // Thêm vào sync queue
-            await addToSyncQueue({
-                type: 'products',
-                data: product
-            });
         }
         
         // Reset preview
         document.getElementById('excelPreview').innerHTML = '';
         delete window.excelData;
         
-        Utils.showToast(`Đã import ${products.length} sản phẩm cho ${hkd.name}`, 'success');
+        Utils.showToast(`Đã import thành công ${successCount}/${products.length} sản phẩm`, 'success');
         
-        // Đồng bộ ngay lập tức
-        if (navigator.onLine) {
-            await forceSync();
+        // Reload data
+        if (document.getElementById('manageHKD').value === hkdId) {
+            await loadCategoriesAndProducts(hkdId);
         }
         
     } catch (error) {
-        console.error('Lỗi import:', error);
-        Utils.showToast('Lỗi khi import dữ liệu', 'error');
+        console.error('❌ Lỗi import:', error);
+        Utils.showToast('Lỗi khi import dữ liệu: ' + error.message, 'error');
     } finally {
         Utils.hideLoading();
     }
+}
+
+// Hàm parse Excel cho cấu trúc mới
+function parseExcelDataForNewStructure(data, hkdId) {
+    const rows = data.slice(1); // bỏ header
+    const categories = [];
+    const products = [];
+    const categoryMap = {}; // Tên danh mục → categoryId
+
+    for (const row of rows) {
+        if (!row || row.length < 5) continue;
+
+        // ===== DANH MỤC =====
+        const categoryName = (row[0]?.toString() || 'Khác').trim();
+
+        if (!categoryMap[categoryName]) {
+            const categoryId = Utils.generateId();
+            const category = {
+                id: categoryId,
+                hkdId: hkdId,
+                name: categoryName,
+                description: '',
+                createdAt: new Date().toISOString(),
+                lastUpdated: new Date().toISOString()
+            };
+
+            categories.push(category);
+            categoryMap[categoryName] = categoryId;
+        }
+
+        // ===== SẢN PHẨM =====
+        const product = {
+            id: Utils.generateId(),
+            hkdId: hkdId,
+
+            name: (row[1]?.toString() || '').trim(),       // Tên SP
+            msp: (row[2]?.toString() || '').trim(),        // Mã SP
+            unit: 'cái',                                   // mặc định
+            price: parseFloat(row[4]) || 0,                // Đơn giá
+            stock: parseInt(row[5]) || 0,                  // Số lượng
+
+            categoryName: categoryName,
+            description: (row[3]?.toString() || '').trim(),// Tên thường gọi
+            note: (row[6]?.toString() || '').trim(),
+
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            _synced: false
+        };
+
+        // tránh import dòng rỗng
+        if (!product.name) continue;
+
+        products.push(product);
+    }
+
+    return { categories, products };
 }
 
 function parseExcelData(data) {

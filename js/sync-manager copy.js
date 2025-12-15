@@ -56,104 +56,201 @@ async function syncData() {
     }
 }
 
-// Sửa hàm syncFromFirebase
 async function syncFromFirebase() {
-  
+    console.log('🔄 Đồng bộ từ Firebase về IndexedDB...');
     
     try {
         await initFirebase();
         
-        // Chỉ sync các stores cần thiết
-        const storesToSync = ['hkds', 'products', 'categories', 'invoices'];
+        // Sync các stores theo thứ tự
+        const storesToSync = ['hkds', 'categories', 'products', 'invoices'];
         
         for (const storeName of storesToSync) {
+            console.log(`📥 Đang sync ${storeName} từ Firebase...`);
             await syncStoreFromFirebase(storeName);
         }
+        
+        console.log('✅ Đã đồng bộ xong từ Firebase');
+        
+        // Sau khi sync từ Firebase, cập nhật UI admin
+        if (typeof window.loadDataAfterSync === 'function') {
+            window.loadDataAfterSync();
+        }
+        
     } catch (error) {
-        console.error('Lỗi đồng bộ từ Firebase:', error);
-        // Không throw error, chỉ log
+        console.error('❌ Lỗi đồng bộ từ Firebase:', error);
     }
 }
 
 async function syncStoreFromFirebase(storeName) {
-    const lastSync = await getLastSyncTime(storeName);
-    const allHKDs = await getAllFromStore(STORES.HKDS);
+    console.log(`📊 Đồng bộ store: ${storeName}`);
     
     try {
         await initFirebase();
+        const allHKDs = await getAllFromStore(STORES.HKDS);
         
         for (const hkd of allHKDs) {
             if (hkd.role !== 'hkd') continue;
             
             const hkdId = hkd.id;
             
-            // Xác định đường dẫn Firebase
-            let path = `hkds/${hkdId}`;
-            
             if (storeName === 'hkds') {
-                path += '/info';
-            } else {
-                path += `/${storeName}`;
+                // Sync thông tin HKD
+                await syncHKDInfoFromFirebase(hkdId);
+                
+            } else if (storeName === 'categories') {
+                // Sync danh mục
+                await syncCategoriesFromFirebase(hkdId);
+                
+            } else if (storeName === 'products') {
+                // Sync hàng hóa
+                await syncProductsFromFirebase(hkdId);
+                
+            } else if (storeName === 'invoices') {
+                // Sync hóa đơn
+                await syncInvoicesFromFirebase(hkdId);
             }
-            
-            const dbRef = firebase.database().ref(path);
-            
-            await new Promise((resolve, reject) => {
-                let query = dbRef.orderByChild('lastUpdated');
-                
-                if (lastSync) {
-                    query = query.startAt(lastSync);
-                }
-                
-                query.once('value', async (snapshot) => {
-                    try {
-                        const data = snapshot.val();
-                        let updatedCount = 0;
-                        
-                        if (data) {
-                            // Nếu là info của HKD
-                            if (storeName === 'hkds') {
-                                const itemToSave = {
-                                    ...data,
-                                    id: hkdId,
-                                    hkdId: hkdId,
-                                    _synced: true
-                                };
-                                await updateInStore(storeName, itemToSave);
-                                updatedCount++;
-                            } else {
-                                // Các loại khác
-                                for (const [itemId, itemData] of Object.entries(data)) {
-                                    if (!lastSync || new Date(itemData.lastUpdated) > new Date(lastSync)) {
-                                        const itemToSave = {
-                                            ...itemData,
-                                            id: itemId,
-                                            hkdId: hkdId,
-                                            _synced: true
-                                        };
-                                        await updateInStore(storeName, itemToSave);
-                                        updatedCount++;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if (updatedCount > 0) {
-                            console.log(`Đã cập nhật ${updatedCount} bản ghi từ ${storeName} của HKD ${hkdId}`);
-                        }
-                        
-                        resolve();
-                    } catch (error) {
-                        reject(error);
-                    }
-                }, reject);
-            });
         }
         
         await updateLastSyncTime(storeName);
+        console.log(`✅ Đã sync ${storeName} từ Firebase`);
         
     } catch (error) {
-        console.error('Lỗi đồng bộ từ Firebase:', error);
+        console.error(`❌ Lỗi sync ${storeName} từ Firebase:`, error);
+    }
+}
+
+// Hàm sync thông tin HKD
+async function syncHKDInfoFromFirebase(hkdId) {
+    try {
+        const hkdRef = firebase.database().ref(`hkds/${hkdId}/info`);
+        const snapshot = await hkdRef.once('value');
+        const hkdData = snapshot.val();
+        
+        if (hkdData) {
+            // Kiểm tra xem có cần cập nhật không
+            const localHKD = await getFromStore(STORES.HKDS, hkdId);
+            
+            if (!localHKD || new Date(hkdData.lastUpdated) > new Date(localHKD.lastUpdated)) {
+                await updateInStore(STORES.HKDS, {
+                    ...hkdData,
+                    id: hkdId,
+                    role: 'hkd'
+                });
+                console.log(`✅ Đã cập nhật thông tin HKD ${hkdId}`);
+            }
+        }
+    } catch (error) {
+        console.error(`❌ Lỗi sync HKD info ${hkdId}:`, error);
+    }
+}
+
+// Hàm sync danh mục
+async function syncCategoriesFromFirebase(hkdId) {
+    try {
+        const categoriesRef = firebase.database().ref(`hkds/${hkdId}/categories`);
+        const snapshot = await categoriesRef.once('value');
+        const categoriesData = snapshot.val();
+        
+        if (categoriesData) {
+            for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+                // Chỉ lấy danh mục (không lấy sản phẩm)
+                if (categoryData && categoryData.name && !categoryData.msp) {
+                    const localCategory = await getFromStore(STORES.CATEGORIES, categoryId);
+                    
+                    // Kiểm tra nếu danh mục đã bị xóa trên Firebase
+                    if (categoryData._deleted === true) {
+                        // Xóa khỏi IndexedDB
+                        await deleteFromStore(STORES.CATEGORIES, categoryId);
+                        console.log(`🗑️ Đã xóa danh mục ${categoryId} (từ Firebase)`);
+                        continue;
+                    }
+                    
+                    if (!localCategory || new Date(categoryData.lastUpdated) > new Date(localCategory.lastUpdated)) {
+                        await updateInStore(STORES.CATEGORIES, {
+                            ...categoryData,
+                            id: categoryId,
+                            hkdId: hkdId
+                        });
+                        console.log(`✅ Đã cập nhật danh mục ${categoryId}`);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error(`❌ Lỗi sync categories ${hkdId}:`, error);
+    }
+}
+
+// Trong syncProductsFromFirebase() - SỬA ĐỂ ĐỌC CẤU TRÚC MỚI
+async function syncProductsFromFirebase(hkdId) {
+    try {
+        await initFirebase();
+        
+        const categoriesRef = firebase.database().ref(`hkds/${hkdId}/categories`);
+        const snapshot = await categoriesRef.once('value');
+        const categoriesData = snapshot.val();
+        
+        if (!categoriesData) return;
+        
+        for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+            if (!categoryData || !categoryData.name) continue;
+            
+            // ĐỌC SẢN PHẨM TRONG products/ (cấu trúc mới)
+            if (categoryData.products && typeof categoryData.products === 'object') {
+                for (const [productId, productData] of Object.entries(categoryData.products)) {
+                    if (!productData || !productData.name) continue;
+                    
+                    // Lưu với categoryId từ đường dẫn
+                    await updateInStore(STORES.PRODUCTS, {
+                        ...productData,
+                        id: productId,
+                        hkdId: hkdId,
+                        categoryId: categoryId, // ← QUAN TRỌNG
+                        _synced: true
+                    });
+                }
+            }
+        }
+        
+        console.log(`✅ Đã sync products từ Firebase (cấu trúc mới)`);
+        
+    } catch (error) {
+        console.error('❌ Lỗi sync products:', error);
+    }
+}
+
+// Hàm sync hóa đơn
+async function syncInvoicesFromFirebase(hkdId) {
+    try {
+        const invoicesRef = firebase.database().ref(`hkds/${hkdId}/invoices`);
+        const snapshot = await invoicesRef.once('value');
+        const invoicesData = snapshot.val();
+        
+        if (invoicesData) {
+            for (const [invoiceId, invoiceData] of Object.entries(invoicesData)) {
+                const localInvoice = await getFromStore(STORES.INVOICES, invoiceId);
+                
+                // Kiểm tra nếu hóa đơn đã bị xóa trên Firebase
+                if (invoiceData._deleted === true) {
+                    // Xóa khỏi IndexedDB
+                    await deleteFromStore(STORES.INVOICES, invoiceId);
+                    console.log(`🗑️ Đã xóa hóa đơn ${invoiceId} (từ Firebase)`);
+                    continue;
+                }
+                
+                if (!localInvoice || new Date(invoiceData.lastUpdated) > new Date(localInvoice.lastUpdated)) {
+                    await updateInStore(STORES.INVOICES, {
+                        ...invoiceData,
+                        id: invoiceId,
+                        hkdId: hkdId
+                    });
+                    console.log(`✅ Đã cập nhật hóa đơn ${invoiceId}`);
+                }
+            }
+        }
+    } catch (error) {
+        console.error(`❌ Lỗi sync invoices ${hkdId}:`, error);
     }
 }
 
@@ -173,10 +270,9 @@ async function syncItemToFirebase(item) {
     
     try {
         // Xác định hkdId
-        let hkdId = data.hkdId || data.id; // Nếu là HKD thì data.id chính là hkdId
+        let hkdId = data.hkdId || data.id;
         
-        // Đối với HKD, hkdId chính là data.id
-        if (type === 'hkds') {
+        if (type === 'hkds' || type === 'hkds_delete') {
             hkdId = data.id;
         }
         
@@ -185,31 +281,71 @@ async function syncItemToFirebase(item) {
             throw new Error('Thiếu hkdId');
         }
         
-        // Tạo đường dẫn Firebase theo cấu trúc: hkds/HKD1_id/loại_dữ_liệu/item_id
+        // Xử lý delete operations - ĐÁNH DẤU XÓA THAY VÌ XÓA THẬT
+        if (type.endsWith('_delete')) {
+            const baseType = type.replace('_delete', '');
+            
+            // Xác định đường dẫn
+            let path = '';
+            if (baseType === 'hkds') {
+                path = `hkds/${hkdId}/info`;
+            } else if (baseType === 'categories') {
+                path = `hkds/${hkdId}/categories/${data.id}`;
+            } else if (baseType === 'products') {
+                if (!data.categoryId) {
+                    throw new Error('Thiếu categoryId để xóa sản phẩm');
+                }
+                path = `hkds/${hkdId}/categories/${data.categoryId}/${data.id}`;
+            } else if (baseType === 'invoices') {
+                path = `hkds/${hkdId}/invoices/${data.id}`;
+            }
+            
+            const dbRef = firebase.database().ref(path);
+            
+            // Thay vì xóa, đánh dấu là đã xóa (soft delete)
+            await dbRef.update({
+                _deleted: true,
+                _deletedAt: new Date().toISOString(),
+                lastUpdated: new Date().toISOString()
+            });
+            
+            console.log(`✅ Đã đánh dấu xóa ${baseType} trên Firebase`);
+            return;
+        }
+        
+        // Xử lý normal sync
         let path = '';
         
-        if (type === 'hkds') {
-            // HKD lưu ở: hkds/HKD1_id/info
-            path = `hkds/${hkdId}/info`;
-        } else {
-            // Các loại khác lưu ở: hkds/HKD1_id/type/item_id
-            path = `hkds/${hkdId}/${type}/${data.id}`;
+        switch(type) {
+            case 'hkds':
+                path = `hkds/${hkdId}/info`;
+                break;
+            case 'categories':
+                path = `hkds/${hkdId}/categories/${data.id}`;
+                break;
+            case 'products':
+                if (!data.categoryId) {
+                    throw new Error('Thiếu categoryId cho sản phẩm');
+                }
+                path = `hkds/${hkdId}/categories/${data.categoryId}/${data.id}`;
+                break;
+            case 'invoices':
+                path = `hkds/${hkdId}/invoices/${data.id}`;
+                break;
+            default:
+                console.error('❌ Loại dữ liệu không xác định:', type);
+                return;
         }
         
         const dbRef = firebase.database().ref(path);
-        
-        console.log(`📤 Đường dẫn Firebase: ${path}`);
-        
-        // Format dữ liệu
         const firebaseData = {
             ...data,
             lastUpdated: new Date().toISOString(),
-            _syncedAt: new Date().toISOString()
+            _syncedAt: new Date().toISOString(),
+            _deleted: false // Đảm bảo không bị đánh dấu xóa
         };
         
-        // Sử dụng set()
         await dbRef.set(firebaseData);
-        
         console.log('✅ Đã sync thành công');
         
     } catch (error) {
