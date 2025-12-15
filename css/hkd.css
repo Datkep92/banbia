@@ -1052,3 +1052,31 @@
         height: 40px;
     }
 }
+
+/* FIX Z-INDEX FOR MODALS */
+.modal-backdrop {
+    z-index: 1040 !important;
+}
+
+/* Modal quản lý HKD */
+#hkdManagementModal {
+    z-index: 1050 !important;
+}
+
+/* Modal sửa hàng hóa */
+#hkdProductModal {
+    z-index: 1060 !important;
+}
+
+/* Modal thêm danh mục */
+#hkdCategoryModal {
+    z-index: 1060 !important;
+}
+
+/* Modal hóa đơn, lịch sử */
+#invoiceReceiptModal,
+#historyModal,
+#revenueModal {
+    z-index: 1070 !important;
+}
+
