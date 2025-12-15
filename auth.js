@@ -1,535 +1,789 @@
-class AuthManager {
-    constructor() {
-        this.currentUser = null;
-        this.currentHKD = null;
-        this.currentPage = window.location.pathname.split('/').pop(); // Lấy tên trang hiện tại
-        this.initialize();
-        console.log('AuthManager initialized - Current page:', this.currentPage);
+// Authentication module
+let currentUser = null;
+
+// Khởi tạo authentication
+async function initAuth() {
+    try {
+        await initFirebase();
         
-        // Chỉ thiết lập login admin nếu đang ở trang admin.html
-        if (this.currentPage === 'admin.html') {
-            this.setupAdminLogin();
+        // Kiểm tra nếu đã đăng nhập từ trước
+        const savedUser = localStorage.getItem('currentUser');
+        if (savedUser) {
+            currentUser = JSON.parse(savedUser);
+            return currentUser;
         }
+        
+        return null;
+    } catch (error) {
+        console.error('Lỗi khởi tạo auth:', error);
+        return null;
     }
+}
+
+async function authenticateAdmin(phone, password) {
+    console.log('🔑 Admin login attempt:', phone);
     
-    // KHỞI TẠO LOGIN ADMIN (CHỈ CHO TRANG ADMIN)
-    setupAdminLogin() {
-        console.log('Setting up admin login for admin.html page');
-        
-        const loginForm = document.getElementById('login-form');
-        if (loginForm) {
-            loginForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.handleAdminLogin();
-            });
-        }
-        
-        // Password toggle eye
-        const toggleBtn = document.querySelector('.toggle-password');
-        if (toggleBtn) {
-            toggleBtn.addEventListener('click', () => {
-                const passwordInput = document.getElementById('password');
-                const icon = toggleBtn.querySelector('i');
-                if (passwordInput.type === 'password') {
-                    passwordInput.type = 'text';
-                    icon.classList.remove('fa-eye-slash');
-                    icon.classList.add('fa-eye');
-                } else {
-                    passwordInput.type = 'password';
-                    icon.classList.remove('fa-eye');
-                    icon.classList.add('fa-eye-slash');
+    try {
+        // 1. Kiểm tra credentials mặc định
+        if (phone === 'admin' && password === '123123') {
+            console.log('✅ Using default admin credentials');
+            
+            currentUser = {
+                id: 'admin',
+                phone: 'admin',
+                name: 'Administrator',
+                role: 'admin',
+                loginTime: new Date().toISOString()
+            };
+            
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            
+            // ĐỒNG BỘ DỮ LIỆU TỪ FIREBASE SAU KHI ĐĂNG NHẬP
+            setTimeout(async () => {
+                try {
+                    await syncAllDataForAdmin();
+                } catch (syncError) {
+                    console.error('❌ Lỗi đồng bộ dữ liệu admin:', syncError);
                 }
-            });
+            }, 1000);
+            
+            return true;
         }
         
-        // Kiểm tra xem đã đăng nhập admin chưa (chỉ cho trang admin)
-        if (this.currentPage === 'admin.html') {
-            this.checkAdminAuthStatus();
+        // 2. Nếu không phải default, kiểm tra trong Firebase
+        console.log('🔍 Checking admin in Firebase...');
+        await initFirebase();
+        
+        // Tìm admin trong Firebase
+        const admin = await findAdminInFirebase(phone, password);
+        
+        if (admin) {
+            currentUser = {
+                id: admin.id,
+                phone: admin.phone,
+                name: admin.name,
+                role: 'admin',
+                loginTime: new Date().toISOString()
+            };
+            
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            
+            // Đồng bộ dữ liệu
+            setTimeout(async () => {
+                await syncAllDataForAdmin();
+            }, 1000);
+            
+            return true;
         }
+        
+        throw new Error('Sai thông tin đăng nhập');
+        
+    } catch (error) {
+        console.error('❌ Lỗi đăng nhập admin:', error);
+        throw error;
+    }
+}
+async function syncAllDataForAdmin() {
+    console.log('🔄 Đồng bộ toàn bộ dữ liệu cho Admin...');
+    
+    if (!navigator.onLine) {
+        console.log('📴 Đang offline, bỏ qua sync');
+        return;
     }
     
-    // XỬ LÝ ĐĂNG NHẬP ADMIN
-    async handleAdminLogin() {
-        console.log('Handling admin login');
+    try {
+        await initFirebase();
         
-        const username = document.getElementById('username').value.trim();
-        const password = document.getElementById('password').value.trim();
-        const messageEl = document.getElementById('login-message');
-        const loginBtn = document.getElementById('login-btn');
+        // 1. Lấy tất cả HKD từ Firebase
+        const hkdsRef = firebase.database().ref('hkds');
+        const snapshot = await hkdsRef.once('value');
+        const allHKDsFromFirebase = snapshot.val();
         
-        // Validation cơ bản
-        if (!username || !password) {
-            this.showAdminLoginMessage('Vui lòng nhập tên đăng nhập và mật khẩu', 'error');
+        if (!allHKDsFromFirebase) {
+            console.log('📭 Firebase trống, không có HKD nào');
             return;
         }
         
-        // Disable button và hiển thị loading
-        loginBtn.disabled = true;
-        const originalHtml = loginBtn.innerHTML;
-        loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang đăng nhập...';
+        console.log(`📥 Tìm thấy ${Object.keys(allHKDsFromFirebase).length} HKD trên Firebase`);
         
-        try {
-            // Kiểm tra thông tin đăng nhập admin
-            const isValid = await this.validateAdminCredentials(username, password);
+        let totalSynced = 0;
+        
+        // 2. Đồng bộ từng HKD
+        for (const [hkdId, hkdData] of Object.entries(allHKDsFromFirebase)) {
+            if (!hkdData || !hkdData.info) continue;
             
-            if (isValid) {
-                this.successfulAdminLogin(username);
-            } else {
-                this.showAdminLoginMessage('Tên đăng nhập hoặc mật khẩu không đúng', 'error');
-                loginBtn.disabled = false;
-                loginBtn.innerHTML = originalHtml;
+            try {
+                console.log(`   🔄 Đang sync HKD: ${hkdData.info.name || hkdId}`);
+                
+                // 2.1. Lưu thông tin HKD
+                const hkdToSave = {
+                    ...hkdData.info,
+                    id: hkdId,
+                    role: 'hkd',
+                    _synced: true,
+                    _syncedAt: new Date().toISOString()
+                };
+                
+                await updateInStore(STORES.HKDS, hkdToSave);
+                
+                // 2.2. Lưu danh mục và sản phẩm (cấu trúc mới)
+                if (hkdData.categories) {
+                    await syncCategoriesAndProductsForAdmin(hkdId, hkdData.categories);
+                }
+                
+                // 2.3. Lưu hóa đơn
+                if (hkdData.invoices) {
+                    await syncInvoicesForAdmin(hkdId, hkdData.invoices);
+                }
+                
+                totalSynced++;
+                console.log(`   ✅ Đã sync xong HKD: ${hkdData.info.name}`);
+                
+            } catch (hkdError) {
+                console.error(`   ❌ Lỗi sync HKD ${hkdId}:`, hkdError);
             }
-        } catch (error) {
-            console.error('Admin login error:', error);
-            this.showAdminLoginMessage('Lỗi hệ thống. Vui lòng thử lại.', 'error');
-            loginBtn.disabled = false;
-            loginBtn.innerHTML = originalHtml;
         }
+        
+        console.log(`✅ Đã đồng bộ ${totalSynced}/${Object.keys(allHKDsFromFirebase).length} HKD`);
+        
+        // 3. Cập nhật UI nếu đang ở admin page
+        if (typeof window.loadDataAfterSync === 'function') {
+            setTimeout(() => {
+                window.loadDataAfterSync();
+            }, 500);
+        }
+        
+        Utils.showToast(`Đã đồng bộ ${totalSynced} HKD từ server`, 'success');
+        
+    } catch (error) {
+        console.error('❌ Lỗi đồng bộ dữ liệu admin:', error);
+        // Không throw, chỉ log lỗi
     }
+}
+async function syncCategoriesAndProductsForAdmin(hkdId, categoriesData) {
+    if (!categoriesData) return;
     
-    // KIỂM TRA CREDENTIALS ADMIN
-    async validateAdminCredentials(username, password) {
-        // Hiện tại dùng hardcoded credentials
-        const adminCredentials = {
-            'admin': 'admin123',
-            'administrator': 'admin@123'
+    let categoryCount = 0;
+    let productCount = 0;
+    
+    for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+        if (!categoryData || !categoryData.name) continue;
+        
+        // 1. Lưu danh mục
+        const categoryToSave = {
+            id: categoryId,
+            hkdId: hkdId,
+            name: categoryData.name,
+            description: categoryData.description || '',
+            createdAt: categoryData.createdAt || new Date().toISOString(),
+            lastUpdated: categoryData.lastUpdated || new Date().toISOString(),
+            _synced: true,
+            _source: 'firebase_admin'
         };
         
-        return adminCredentials[username] === password;
-    }
-    
-    // XỬ LÝ ĐĂNG NHẬP ADMIN THÀNH CÔNG
-    successfulAdminLogin(username) {
-        console.log('Admin login successful for:', username);
+        await updateInStore(STORES.CATEGORIES, categoryToSave);
+        categoryCount++;
         
-        // Lưu thông tin đăng nhập vào localStorage
-        localStorage.setItem('admin_token', 'admin_authenticated');
-        localStorage.setItem('admin_login_time', new Date().toISOString());
-        localStorage.setItem('admin_username', username);
-        
-        // Hiển thị thông báo thành công
-        this.showAdminLoginMessage('Đăng nhập thành công! Đang chuyển hướng...', 'success');
-        
-        // Chuyển đến dashboard (chỉ trên trang admin.html)
-        setTimeout(() => {
-            const loginSection = document.getElementById('login-section');
-            const dashboardSection = document.getElementById('dashboard-section');
-            
-            if (loginSection && dashboardSection) {
-                loginSection.style.display = 'none';
-                dashboardSection.style.display = 'block';
+        // 2. Lưu sản phẩm trong danh mục (cấu trúc mới)
+        if (categoryData.products && typeof categoryData.products === 'object') {
+            for (const [productId, productData] of Object.entries(categoryData.products)) {
+                if (!productData || !productData.name) continue;
                 
-                // Khởi tạo admin manager
-                if (typeof window.AdminCoreManager !== 'undefined') {
-                    window.adminManager = new window.AdminCoreManager();
-                }
-            } else {
-                // Nếu không tìm thấy các section, reload trang
-                window.location.reload();
-            }
-        }, 1000);
-    }
-    
-    // KIỂM TRA TRẠNG THÁI ĐĂNG NHẬP ADMIN
-    checkAdminAuthStatus() {
-        console.log('Checking admin auth status for page:', this.currentPage);
-        
-        // Chỉ kiểm tra trên trang admin.html
-        if (this.currentPage !== 'admin.html') {
-            return false;
-        }
-        
-        const token = localStorage.getItem('admin_token');
-        const loginTime = localStorage.getItem('admin_login_time');
-        
-        if (token === 'admin_authenticated' && loginTime) {
-            // Kiểm tra thời gian đăng nhập (24 giờ)
-            const loginDate = new Date(loginTime);
-            const now = new Date();
-            const hoursDiff = (now - loginDate) / (1000 * 60 * 60);
-            
-            if (hoursDiff < 24) {
-                // Đã đăng nhập, tự động hiển thị dashboard
-                const loginSection = document.getElementById('login-section');
-                const dashboardSection = document.getElementById('dashboard-section');
+                const productToSave = {
+                    id: productId,
+                    hkdId: hkdId,
+                    categoryId: categoryId, // QUAN TRỌNG
+                    msp: productData.msp || '',
+                    name: productData.name,
+                    unit: productData.unit || 'cái',
+                    price: productData.price || 0,
+                    stock: productData.stock || 0,
+                    description: productData.description || '',
+                    note: productData.note || '',
+                    lastUpdated: productData.lastUpdated || new Date().toISOString(),
+                    _synced: true,
+                    _source: 'firebase_admin'
+                };
                 
-                if (loginSection && dashboardSection) {
-                    loginSection.style.display = 'none';
-                    dashboardSection.style.display = 'block';
-                    console.log('Admin already logged in, showing dashboard');
-                    return true;
-                }
-            } else {
-                // Token hết hạn, xóa và yêu cầu đăng nhập lại
-                console.log('Admin token expired, clearing...');
-                localStorage.removeItem('admin_token');
-                localStorage.removeItem('admin_login_time');
-                localStorage.removeItem('admin_username');
+                await updateInStore(STORES.PRODUCTS, productToSave);
+                productCount++;
             }
         }
-        return false;
     }
     
-    // HIỂN THỊ THÔNG BÁO ĐĂNG NHẬP ADMIN
-    showAdminLoginMessage(message, type = 'info') {
-        const messageEl = document.getElementById('login-message');
-        if (messageEl) {
-            messageEl.textContent = message;
-            messageEl.className = 'login-message';
-            messageEl.classList.add(type);
-            messageEl.style.display = 'block';
-        }
-    }
-    
-    // ========== PHẦN HKD - GIỮ NGUYÊN HOẶC CẬP NHẬT ==========
-    
-    initialize() {
-    // Kiểm tra trạng thái HKD trên mọi trang
-    this.checkHKDLoginStatus();
-    
-    // Chỉ check admin status nếu trên trang admin
-    if (this.currentPage === 'admin.html') {
-        this.checkAdminAuthStatus();
-    }
-    
-    // Setup event listeners based on page
-    this.setupPageSpecificEvents();
+    console.log(`     📁 Danh mục: ${categoryCount}, 📦 Sản phẩm: ${productCount}`);
 }
 
-// Thêm hàm mới
-setupPageSpecificEvents() {
-    // Setup cho trang hkd.html
-    if (this.currentPage === 'hkd.html') {
-        this.setupHKDLogin();
-    }
-}
-
-// Setup login cho trang HKD
-setupHKDLogin() {
-    const loginForm = document.getElementById('hkd-login-form');
-    const loginBtn = document.getElementById('hkd-login-btn');
+async function syncInvoicesForAdmin(hkdId, invoicesData) {
+    if (!invoicesData) return;
     
-    if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await this.handleHKDLoginForm();
-        });
-    }
+    let invoiceCount = 0;
     
-    if (loginBtn) {
-        loginBtn.addEventListener('click', async () => {
-            await this.handleHKDLoginForm();
-        });
-    }
-    
-    // Kiểm tra nếu đã login thì redirect
-    if (this.checkHKDLoginStatus()) {
-        console.log('HKD already logged in, redirecting to dashboard');
-        // Redirect hoặc show dashboard
-        this.showHKDDashboard();
-    }
-}
-
-// Xử lý form login HKD
-async handleHKDLoginForm() {
-    const phoneInput = document.getElementById('hkd-phone');
-    const passwordInput = document.getElementById('hkd-password');
-    
-    if (!phoneInput || !passwordInput) {
-        console.error('Login form elements not found');
-        return;
-    }
-    
-    const phone = phoneInput.value.trim();
-    const password = passwordInput.value;
-    
-    if (!phone || !password) {
-        utils.showNotification('Vui lòng nhập số điện thoại và mật khẩu', 'error');
-        return;
-    }
-    
-    const result = await this.loginHKD(phone, password);
-    
-    if (result.success) {
-        // Redirect hoặc show dashboard
-        this.showHKDDashboard();
-    }
-}
-
-// Hiển thị dashboard HKD
-showHKDDashboard() {
-    const loginSection = document.getElementById('hkd-login-section');
-    const dashboardSection = document.getElementById('hkd-dashboard-section');
-    
-    if (loginSection && dashboardSection) {
-        loginSection.style.display = 'none';
-        dashboardSection.style.display = 'block';
+    for (const [invoiceId, invoiceData] of Object.entries(invoicesData)) {
+        if (!invoiceData || !invoiceData.items) continue;
         
-        // Khởi tạo HKD manager
-        setTimeout(() => {
-            if (typeof window.HKDManager !== 'undefined') {
-                window.hkdManager = new window.HKDManager();
-            }
-        }, 500);
+        const invoiceToSave = {
+            ...invoiceData,
+            id: invoiceId,
+            hkdId: hkdId,
+            _synced: true,
+            _source: 'firebase_admin'
+        };
+        
+        await updateInStore(STORES.INVOICES, invoiceToSave);
+        invoiceCount++;
     }
-}
     
-    // Cập nhật trạng thái trực tuyến của HKD
-    async updateOnlineStatus(isOnline) {
-        if (!this.currentHKD || !window.dbManager || typeof window.dbManager.updateHKDOnlineStatus !== 'function') return;
+    console.log(`     🧾 Hóa đơn: ${invoiceCount}`);
+}
 
+async function findAdminInFirebase(phone, password) {
+    return new Promise((resolve, reject) => {
         try {
-            await window.dbManager.updateHKDOnlineStatus(this.currentHKD, isOnline); 
-        } catch (error) {
-            console.error('Error updating online status:', error); 
-        }
-    }
-    
-    // Kiểm tra trạng thái đăng nhập HKD (cho tất cả trang)
-    checkAuthStatus() {
-        try {
-            const session = localStorage.getItem('hkd_session');
+            const adminsRef = firebase.database().ref('admins');
             
-            if (session) {
-                const sessionData = JSON.parse(session);
+            adminsRef.once('value', (snapshot) => {
+                const adminsData = snapshot.val();
                 
-                const now = Date.now();
-                const sessionDuration = 24 * 60 * 60 * 1000;
-                
-                if (now - sessionData.timestamp < sessionDuration) {
-                    this.currentUser = sessionData;
-                    this.currentHKD = sessionData.hkdId;
-                    this.updateOnlineStatus(true);
-                    return true;
-                } else {
-                    this.logout('hkd');
+                if (!adminsData) {
+                    reject(new Error('Không tìm thấy admin trong Firebase'));
+                    return;
                 }
-            }
-        } catch (error) {
-            console.error('Error checking auth status:', error);
-            this.logout('hkd');
-        }
-        
-        return false;
-    }
-    async loginHKD(phone, password) {
-    try {
-        console.log('[HKD Login] Attempting login for:', phone);
-        
-        if (!window.dbManager || typeof window.dbManager.loginHKD !== 'function') {
-            console.error('Database manager not available or loginHKD method missing');
-            return { 
-                success: false, 
-                error: 'Hệ thống chưa sẵn sàng. Vui lòng tải lại trang.' 
-            };
-        }
-        
-        utils.showLoading('Đang đăng nhập...');
-        
-        // Gọi đến database manager
-        const result = await window.dbManager.loginHKD(phone, password);
-        
-        if (result.success) {
-            const hkdData = result.data;
-            
-            // Lưu session vào localStorage
-            const sessionData = {
-                ...hkdData,
-                timestamp: Date.now()
-            };
-            
-            localStorage.setItem('hkd_session', JSON.stringify(sessionData));
-            localStorage.setItem('hkd_token', 'authenticated');
-            localStorage.setItem('hkd_id', hkdData.hkdId);
-            localStorage.setItem('hkd_info', JSON.stringify(hkdData));
-            localStorage.setItem('hkd_phone', phone);
-            
-            this.currentUser = sessionData;
-            this.currentHKD = hkdData.hkdId;
-            
-            // Update online status
-            if (typeof window.dbManager.updateHKDOnlineStatus === 'function') {
-                await window.dbManager.updateHKDOnlineStatus(hkdData.hkdId, true);
-            }
-            
-            utils.showNotification(`Đăng nhập thành công! Chào mừng ${hkdData.name}`, 'success');
-            
-            console.log('[HKD Login] Success:', { 
-                hkdId: hkdData.hkdId, 
-                name: hkdData.name 
+                
+                // Tìm admin trùng phone và password
+                for (const [adminId, adminData] of Object.entries(adminsData)) {
+                    if (adminData.phone === phone && 
+                        adminData.password === password && 
+                        adminData.role === 'admin') {
+                        
+                        resolve({
+                            id: adminId,
+                            ...adminData
+                        });
+                        return;
+                    }
+                }
+                
+                reject(new Error('Sai thông tin đăng nhập'));
+            }, (error) => {
+                reject(new Error('Lỗi kết nối Firebase'));
             });
             
-            return { 
-                success: true, 
-                data: hkdData 
-            };
-            
-        } else {
-            console.error('[HKD Login] Failed:', result.error);
-            utils.showNotification(`Đăng nhập thất bại: ${result.error}`, 'error');
-            return { 
-                success: false, 
-                error: result.error 
-            };
-        }
-        
-    } catch (error) {
-        console.error('[HKD Login] System error:', error);
-        return { 
-            success: false, 
-            error: 'Lỗi hệ thống: ' + error.message 
-        };
-    } finally {
-        utils.hideLoading();
-    }
-}
-
-// Thêm hàm checkHKDLoginStatus
-checkHKDLoginStatus() {
-    try {
-        const session = localStorage.getItem('hkd_session');
-        const token = localStorage.getItem('hkd_token');
-        const hkdId = localStorage.getItem('hkd_id');
-        
-        if (session && token === 'authenticated' && hkdId) {
-            const sessionData = JSON.parse(session);
-            const now = Date.now();
-            const sessionDuration = 24 * 60 * 60 * 1000; // 24 giờ
-            
-            if (now - sessionData.timestamp < sessionDuration) {
-                this.currentUser = sessionData;
-                this.currentHKD = hkdId;
-                return true;
-            } else {
-                // Session hết hạn
-                this.logout('hkd');
-            }
-        }
-        return false;
-    } catch (error) {
-        console.error('Error checking HKD login status:', error);
-        return false;
-    }
-}
-    // Đăng nhập HKD
-    async login(phone, password) {
-        try {
-            if (!window.dbManager) {
-                return { 
-                    success: false, 
-                    error: 'Hệ thống database chưa sẵn sàng.' 
-                };
-            }
-            
-            const result = await window.dbManager.loginHKD(phone, password);
-            
-            if (result.success) {
-                const sessionData = {
-                    ...result.data,
-                    timestamp: Date.now()
-                };
-                localStorage.setItem('hkd_session', JSON.stringify(sessionData));
-                
-                this.currentUser = sessionData;
-                this.currentHKD = sessionData.hkdId;
-                
-                this.updateOnlineStatus(true);
-                
-                return { success: true, data: result.data };
-            } else {
-                return { success: false, error: result.error };
-            }
-
         } catch (error) {
-            console.error('Error during login:', error);
-            return { success: false, error: 'Đã xảy ra lỗi hệ thống.' };
+            reject(error);
         }
-    }
-    
-    // auth.js - Cập nhật phần logout()
-logout(userType = 'hkd') {
-    console.log('Logging out user type:', userType);
-    
-    if (userType === 'hkd') {
-        if (this.currentHKD) {
-            this.updateOnlineStatus(false);
-        }
-        localStorage.removeItem('hkd_session');
-        this.currentUser = null;
-        this.currentHKD = null;
-        
-        // KHÔNG reload ở đây nữa, để sự kiện click xử lý
-        console.log('HKD logged out successfully');
-        
-    } else if (userType === 'admin') {
-        // Xóa thông tin admin
-        localStorage.removeItem('admin_token');
-        localStorage.removeItem('admin_login_time');
-        localStorage.removeItem('admin_username');
-        
-        console.log('Admin logged out successfully');
-        
-        // Nếu đang ở trang admin, redirect về login
-        if (this.currentPage === 'admin.html') {
-            // Reload trang để quay về màn hình login
-            window.location.reload();
-        }
-    }
-    
+    });
 }
+async function handleSoftDelete(baseType, hkdId, data) {
+    console.log(`🗑️ Soft deleting ${baseType}: ${data.id}`);
     
-    // Lấy thông tin người dùng hiện tại
-    getCurrentUser() {
-        return this.currentUser;
+    let path = '';
+    
+    switch(baseType) {
+        case 'hkds':
+            path = `hkds/${hkdId}/info`;
+            break;
+            
+        case 'categories':
+            path = `hkds/${hkdId}/categories/${data.id}`;
+            break;
+            
+        case 'products':
+            if (!data.categoryId) {
+                // Thử lấy categoryId từ IndexedDB nếu không có trong data
+                try {
+                    const product = await getFromStore(STORES.PRODUCTS, data.id);
+                    data.categoryId = product?.categoryId;
+                } catch (err) {
+                    console.warn('⚠️ Không thể lấy categoryId từ IndexedDB:', err);
+                }
+                
+                if (!data.categoryId) {
+                    throw new Error(`Thiếu categoryId để xóa sản phẩm ${data.id}`);
+                }
+            }
+            path = `hkds/${hkdId}/categories/${data.categoryId}/products/${data.id}`;
+            break;
+            
+        case 'invoices':
+            path = `hkds/${hkdId}/invoices/${data.id}`;
+            break;
+            
+        default:
+            throw new Error(`Loại xóa không được hỗ trợ: ${baseType}`);
     }
     
-    // Lấy HKD ID hiện tại
-    getCurrentHKD() {
-        return this.currentHKD;
-    }
+    const dbRef = firebase.database().ref(path);
     
-    // Kiểm tra xem có phải admin không
-    isAdmin() {
-        return localStorage.getItem('admin_token') === 'admin_authenticated';
-    }
+    // Soft delete: chỉ đánh dấu, không xóa thật
+    await dbRef.update({
+        _deleted: true,
+        _deletedAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString()
+    });
     
-    // Kiểm tra xem có đang ở trang admin không
-    isAdminPage() {
-        return this.currentPage === 'admin.html';
-    }
+    console.log(`✅ Đã đánh dấu xóa ${baseType} ${data.id} trên Firebase`);
 }
-
-// Khởi tạo AuthManager toàn cục
-let authManager = null;
-
-try {
-    authManager = new AuthManager();
-    if (typeof window !== 'undefined') {
-        window.authManager = authManager;
-        window.AuthManager = AuthManager;
+async function handleProductCategoryChange(hkdId, productData) {
+    console.log(`🔄 Xử lý sản phẩm đổi danh mục: ${productData.id}`);
+    console.log(`   Từ: ${productData.oldCategoryId} → Đến: ${productData.categoryId}`);
+    
+    // 1. Xóa sản phẩm khỏi danh mục cũ (nếu có)
+    if (productData.oldCategoryId) {
+        try {
+            const oldPath = `hkds/${hkdId}/categories/${productData.oldCategoryId}/products/${productData.id}`;
+            const oldRef = firebase.database().ref(oldPath);
+            await oldRef.remove();
+            console.log(`✅ Đã xóa khỏi danh mục cũ: ${productData.oldCategoryId}`);
+        } catch (removeError) {
+            console.warn(`⚠️ Không thể xóa khỏi danh mục cũ: ${removeError.message}`);
+            // Vẫn tiếp tục, có thể sản phẩm không tồn tại ở danh mục cũ
+        }
     }
-    console.log('✅ AuthManager successfully created');
-} catch (error) {
-    console.error('❌ Failed to create AuthManager:', error);
-    // Tạo fallback object
-    authManager = {
-        checkAuthStatus: () => false,
-        login: async () => ({ 
-            success: false, 
-            error: 'Hệ thống xác thực không khả dụng' 
-        }),
-        logout: () => {},
-        getCurrentUser: () => null,
-        getCurrentHKD: () => null,
-        isAdmin: () => false,
-        isAdminPage: () => false,
-        updateOnlineStatus: async () => {}
+    
+    // 2. Thêm vào danh mục mới
+    const newPath = `hkds/${hkdId}/categories/${productData.categoryId}/products/${productData.id}`;
+    const newRef = firebase.database().ref(newPath);
+    
+    // Chỉ lưu các trường cần thiết, không lưu metadata
+    const firebaseProductData = {
+        msp: productData.msp || '',
+        name: productData.name || '',
+        unit: productData.unit || 'cái',
+        price: productData.price || 0,
+        stock: productData.stock || 0,
+        cost: productData.cost || null,
+        description: productData.description || '',
+        note: productData.note || '',
+        lastUpdated: productData.lastUpdated || new Date().toISOString(),
+        _syncedAt: new Date().toISOString(),
+        _deleted: false
     };
-    if (typeof window !== 'undefined') {
-        window.authManager = authManager;
+    
+    await newRef.set(firebaseProductData);
+    console.log(`✅ Đã thêm vào danh mục mới: ${productData.categoryId}`);
+}
+async function handleNormalSync(type, hkdId, data) {
+    console.log(`📤 Normal sync ${type}: ${data.id}`);
+    
+    let path = '';
+    let firebaseData = {};
+    
+    switch(type) {
+        case 'hkds':
+            path = `hkds/${hkdId}/info`;
+            firebaseData = {
+                name: data.name || '',
+                phone: data.phone || '',
+                address: data.address || '',
+                password: data.password || '', // QUAN TRỌNG: lưu mật khẩu
+                role: 'hkd',
+                createdAt: data.createdAt || new Date().toISOString(),
+                lastUpdated: new Date().toISOString(),
+                _syncedAt: new Date().toISOString(),
+                _deleted: false
+            };
+            break;
+            
+        case 'categories':
+            path = `hkds/${hkdId}/categories/${data.id}`;
+            firebaseData = {
+                name: data.name || '',
+                description: data.description || '',
+                createdAt: data.createdAt || new Date().toISOString(),
+                lastUpdated: new Date().toISOString(),
+                products: data.products || {}, // Đảm bảo có node products
+                _syncedAt: new Date().toISOString(),
+                _deleted: false
+            };
+            break;
+            
+        case 'products':
+            if (!data.categoryId) {
+                throw new Error(`Thiếu categoryId cho sản phẩm ${data.id}`);
+            }
+            path = `hkds/${hkdId}/categories/${data.categoryId}/products/${data.id}`;
+            firebaseData = {
+                msp: data.msp || '',
+                name: data.name || '',
+                unit: data.unit || 'cái',
+                price: data.price || 0,
+                stock: data.stock || 0,
+                cost: data.cost || null,
+                description: data.description || '',
+                note: data.note || '',
+                lastUpdated: data.lastUpdated || new Date().toISOString(),
+                _syncedAt: new Date().toISOString(),
+                _deleted: false
+            };
+            break;
+            
+        case 'invoices':
+            path = `hkds/${hkdId}/invoices/${data.id}`;
+            // Đảm bảo items là array hợp lệ
+            const items = Array.isArray(data.items) ? data.items : [];
+            firebaseData = {
+                hkdName: data.hkdName || '',
+                customerName: data.customerName || 'Khách lẻ',
+                date: data.date || new Date().toISOString(),
+                items: items,
+                subtotal: data.subtotal || 0,
+                total: data.total || 0,
+                status: data.status || 'completed',
+                lastUpdated: new Date().toISOString(),
+                _syncedAt: new Date().toISOString(),
+                _deleted: false
+            };
+            break;
+            
+        default:
+            throw new Error(`Loại dữ liệu không được hỗ trợ: ${type}`);
+    }
+    
+    const dbRef = firebase.database().ref(path);
+    
+    // Sử dụng set() thay vì update() để đảm bảo ghi đè toàn bộ
+    await dbRef.set(firebaseData);
+    
+    console.log(`✅ Đã sync ${type} ${data.id} thành công`);
+    
+    // Ghi log chi tiết cho debug
+    if (type === 'products') {
+        console.log(`   📍 Vị trí: ${path}`);
+        console.log(`   📊 Dữ liệu:`, {
+            name: firebaseData.name,
+            price: firebaseData.price,
+            categoryId: data.categoryId
+        });
+    }
+}
+// Đăng nhập HKD - LẤY TỪ FIREBASE
+async function authenticateHKD(phone, password) {
+    console.log(`🔑 Đăng nhập HKD từ Firebase: ${phone}`);
+    
+    try {
+        // 1. Khởi tạo Firebase nếu chưa
+        await initFirebase();
+        
+        // 2. Tìm HKD trong Firebase
+        const hkd = await findHKDInFirebase(phone, password);
+        
+        // 3. Lưu vào current user
+        currentUser = {
+            id: hkd.id,
+            phone: hkd.phone,
+            name: hkd.name,
+            address: hkd.address,
+            role: 'hkd',
+            loginTime: new Date().toISOString()
+        };
+        
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        
+        // 4. Đồng bộ dữ liệu HKD về IndexedDB
+        await syncHKDDataFromFirebase(hkd.id);
+        
+        console.log('✅ Đăng nhập thành công từ Firebase');
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Lỗi đăng nhập từ Firebase:', error);
+        throw error;
     }
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { AuthManager, authManager };
+// Tìm HKD trong Firebase
+async function findHKDInFirebase(phone, password) {
+    return new Promise((resolve, reject) => {
+        try {
+            // Lấy tất cả HKD từ Firebase
+            const hkdsRef = firebase.database().ref('hkds');
+            
+            hkdsRef.once('value', (snapshot) => {
+                const hkdsData = snapshot.val();
+                console.log('🔥 Dữ liệu HKD từ Firebase:', hkdsData);
+                
+                if (!hkdsData) {
+                    reject(new Error('Không có HKD nào trong Firebase'));
+                    return;
+                }
+                
+                // Duyệt qua tất cả HKD
+                let foundHKD = null;
+                
+                for (const [hkdId, hkdData] of Object.entries(hkdsData)) {
+                    console.log(`Checking HKD ${hkdId}:`, hkdData);
+                    
+                    // Kiểm tra xem có info không
+                    if (hkdData && hkdData.info) {
+                        const info = hkdData.info;
+                        
+                        if (info.phone === phone && 
+                            info.password === password && 
+                            info.role === 'hkd') {
+                            foundHKD = {
+                                id: hkdId,
+                                ...info
+                            };
+                            break;
+                        }
+                    }
+                }
+                
+                if (foundHKD) {
+                    console.log('✅ Tìm thấy HKD trong Firebase:', foundHKD);
+                    resolve(foundHKD);
+                } else {
+                    console.log('❌ Không tìm thấy HKD phù hợp');
+                    reject(new Error('Sai số điện thoại hoặc mật khẩu'));
+                }
+            }, (error) => {
+                console.error('❌ Lỗi Firebase:', error);
+                reject(new Error('Lỗi kết nối Firebase'));
+            });
+            
+        } catch (error) {
+            console.error('❌ Lỗi tìm HKD:', error);
+            reject(error);
+        }
+    });
+}
+
+async function syncHKDDataFromFirebase(hkdId) {
+    console.log(`🔄 Đồng bộ dữ liệu HKD ${hkdId} từ Firebase...`);
+    
+    try {
+        await initFirebase();
+        
+        // 1. Lấy thông tin HKD
+        const hkdRef = firebase.database().ref(`hkds/${hkdId}/info`);
+        const hkdSnapshot = await hkdRef.once('value');
+        const hkdData = hkdSnapshot.val();
+        
+        if (hkdData) {
+            await updateInStore(STORES.HKDS, {
+                ...hkdData,
+                id: hkdId
+            });
+            console.log('✅ Đã lưu HKD info vào IndexedDB');
+        }
+        
+        // ==================== QUAN TRỌNG ====================
+        // 2. Lấy DANH MỤC và SẢN PHẨM (cấu trúc mới)
+        const categoriesRef = firebase.database().ref(`hkds/${hkdId}/categories`);
+        const categoriesSnapshot = await categoriesRef.once('value');
+        const categoriesData = categoriesSnapshot.val();
+        
+        if (categoriesData) {
+            console.log(`📂 Tìm thấy ${Object.keys(categoriesData).length} danh mục trên Firebase`);
+            
+            for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+                if (!categoryData || !categoryData.name) continue;
+                
+                // 2.1. Lưu danh mục
+                await updateInStore(STORES.CATEGORIES, {
+                    id: categoryId,
+                    hkdId: hkdId,
+                    name: categoryData.name,
+                    description: categoryData.description || '',
+                    createdAt: categoryData.createdAt || new Date().toISOString(),
+                    lastUpdated: categoryData.lastUpdated || new Date().toISOString(),
+                    _synced: true
+                });
+                
+                console.log(`   📁 Đã lưu danh mục: ${categoryData.name}`);
+                
+                // 2.2. Lưu SẢN PHẨM trong danh mục (cấu trúc mới)
+                if (categoryData.products && typeof categoryData.products === 'object') {
+                    const products = categoryData.products;
+                    console.log(`     📦 Tìm thấy ${Object.keys(products).length} sản phẩm trong danh mục`);
+                    
+                    for (const [productId, productData] of Object.entries(products)) {
+                        if (!productData || !productData.name) continue;
+                        
+                        await updateInStore(STORES.PRODUCTS, {
+                            id: productId,
+                            hkdId: hkdId,
+                            categoryId: categoryId, // ← QUAN TRỌNG: lấy từ đường dẫn
+                            msp: productData.msp || '',
+                            name: productData.name,
+                            unit: productData.unit || 'cái',
+                            price: productData.price || 0,
+                            stock: productData.stock || 0,
+                            description: productData.description || '',
+                            note: productData.note || '',
+                            lastUpdated: productData.lastUpdated || new Date().toISOString(),
+                            _synced: true
+                        });
+                        
+                        console.log(`       ✅ ${productData.name} - ${productData.price}đ`);
+                    }
+                } else {
+                    console.log(`     📭 Danh mục "${categoryData.name}" không có sản phẩm`);
+                }
+            }
+        } else {
+            console.log('📭 Không tìm thấy danh mục nào trên Firebase');
+        }
+        
+        // ==================== QUAN TRỌNG ====================
+        // 3. Lấy HÓA ĐƠN
+        const invoicesRef = firebase.database().ref(`hkds/${hkdId}/invoices`);
+        const invoicesSnapshot = await invoicesRef.once('value');
+        const invoicesData = invoicesSnapshot.val();
+        
+        if (invoicesData) {
+            let invoiceCount = 0;
+            for (const [invoiceId, invoice] of Object.entries(invoicesData)) {
+                await updateInStore(STORES.INVOICES, {
+                    ...invoice,
+                    id: invoiceId,
+                    hkdId: hkdId
+                });
+                invoiceCount++;
+            }
+            console.log(`✅ Đã đồng bộ ${invoiceCount} hóa đơn`);
+        }
+        
+        console.log('✅ Hoàn tất đồng bộ từ Firebase');
+        
+        // 4. Gọi callback để cập nhật UI
+        if (typeof window.onHKDDataSynced === 'function') {
+            window.onHKDDataSynced(hkdId);
+        }
+        
+    } catch (error) {
+        console.error('❌ Lỗi đồng bộ từ Firebase:', error);
+        throw error;
+    }
+}
+
+// Đồng bộ dữ liệu HKD
+async function syncHKDData(hkdId) {
+    if (!navigator.onLine) {
+        console.log('Offline mode - sử dụng dữ liệu local');
+        return;
+    }
+    
+    try {
+        await initFirebase();
+        
+        // Đồng bộ sản phẩm của HKD
+        const productsRef = getDatabaseRef('products').orderByChild('hkdId').equalTo(hkdId);
+        const productsSnapshot = await productsRef.once('value');
+        const products = productsSnapshot.val();
+        
+        if (products) {
+            for (const [key, product] of Object.entries(products)) {
+                await saveProduct({
+                    ...product,
+                    id: key,
+                    _synced: true
+                });
+            }
+            console.log(`Đã đồng bộ ${Object.keys(products).length} sản phẩm`);
+        }
+        
+        // Đồng bộ danh mục
+        const categoriesRef = getDatabaseRef('categories').orderByChild('hkdId').equalTo(hkdId);
+        const categoriesSnapshot = await categoriesRef.once('value');
+        const categories = categoriesSnapshot.val();
+        
+        if (categories) {
+            for (const [key, category] of Object.entries(categories)) {
+                await saveCategory({
+                    ...category,
+                    id: key,
+                    _synced: true
+                });
+            }
+        }
+        
+        // Đồng bộ hóa đơn
+        const invoicesRef = getDatabaseRef('invoices').orderByChild('hkdId').equalTo(hkdId);
+        const invoicesSnapshot = await invoicesRef.once('value');
+        const invoices = invoicesSnapshot.val();
+        
+        if (invoices) {
+            for (const [key, invoice] of Object.entries(invoices)) {
+                await saveInvoice({
+                    ...invoice,
+                    id: key,
+                    _synced: true
+                });
+            }
+        }
+        
+    } catch (error) {
+        console.error('Lỗi đồng bộ dữ liệu HKD:', error);
+    }
+}
+
+// Đăng xuất
+function logout() {
+    currentUser = null;
+    localStorage.removeItem('currentUser');
+    
+    // Chuyển về trang chủ
+    window.location.href = 'index.html';
+}
+
+// Kiểm tra quyền
+function checkPermission(requiredRole) {
+    if (!currentUser) {
+        return false;
+    }
+    
+    if (requiredRole === 'admin' && currentUser.role !== 'admin') {
+        return false;
+    }
+    
+    if (requiredRole === 'hkd' && currentUser.role !== 'hkd') {
+        return false;
+    }
+    
+    return true;
+}
+
+// Lấy thông tin người dùng hiện tại
+function getCurrentUser() {
+    return currentUser;
+}
+
+// Đổi mật khẩu Admin
+async function changeAdminPassword(oldPassword, newPassword) {
+    if (!checkPermission('admin')) {
+        throw new Error('Không có quyền thực hiện');
+    }
+    
+    if (oldPassword !== '123123') {
+        throw new Error('Mật khẩu cũ không đúng');
+    }
+    
+    try {
+        // Cập nhật trong IndexedDB
+        const admin = await getHKD('admin');
+        if (admin) {
+            admin.password = newPassword;
+            await saveHKD(admin);
+        }
+        
+        // Thêm vào sync queue để đồng bộ lên Firebase
+        await addToSyncQueue({
+            type: 'hkds',
+            data: {
+                id: 'admin',
+                phone: 'admin',
+                name: 'Administrator',
+                password: newPassword,
+                role: 'admin',
+                lastUpdated: new Date().toISOString()
+            }
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('Lỗi đổi mật khẩu:', error);
+        throw error;
+    }
 }

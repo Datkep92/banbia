@@ -1,1746 +1,2152 @@
-class HKDManager {
-    constructor() {
-        this.currentCart = null;
-        this.products = {};
-        this.categories = [];
-        this.hkdId = null;
-        this.hkdInfo = null;
+// HKD module - Bán hàng, quản lý đơn hàng
+let currentHKD = null;
+let products = [];
+let categories = [];
+let cart = [];
+let invoiceHistory = [];
+// Thêm các biến global mới
+let isSyncing = false;
+let hkdSyncInterval = null;
+
+// Sửa hàm initHKDPage để khởi tạo sync
+async function initHKDPage() {
+    try {
+         setTimeout(async () => {
+        if (!currentHKD) return;
         
-        this.init();
-    }
-    
-    async init() {
-        // Kiểm tra đăng nhập
-        if (!window.authManager?.checkAuthStatus()) {
-            console.log('HKD not logged in');
+        const products = await getProductsByHKD(currentHKD.id);
+        const categories = await getCategoriesByHKD(currentHKD.id);
+        
+        if ((products.length === 0 || categories.length === 0) && navigator.onLine) {
+            console.log('📭 HKD: Dữ liệu trống, thực hiện sync...');
+            Utils.showToast('Đang tải dữ liệu...', 'info');
+            
+            if (typeof syncHKDDataFromFirebase === 'function') {
+                await syncHKDDataFromFirebase(currentHKD.id);
+                await loadHKDData(); // Tải lại sau sync
+                displayProducts(); // Refresh UI
+            }
+        }
+    }, 2000);
+        // Khởi tạo toàn bộ hệ thống
+        await initSystem();
+        
+        // Kiểm tra quyền HKD
+        const user = getCurrentUser();
+        if (!user || user.role !== 'hkd') {
+            window.location.href = 'login.html?type=hkd';
             return;
         }
         
         // Lấy thông tin HKD
-        this.hkdId = window.authManager.getCurrentHKD();
-        if (!this.hkdId) {
-            console.error('No HKD ID found');
-            return;
-        }
+        currentHKD = user;
         
-        // Khởi tạo
-        await this.loadHKDInfo();
-        this.restoreCart(); 
-        await this.loadData();
-        this.setupEventListeners();
-        this.updateConnectionStatus();
+        // Tải dữ liệu ban đầu
+        await loadHKDData();
         
-        console.log('HKDManager initialized for:', this.hkdId);
-    }
-    
-    // Load thông tin HKD
-    async loadHKDInfo() {
-        try {
-            // Sử dụng window.database
-            const snapshot = await database.ref(`hkds/${this.hkdId}/info`).once('value');
-            this.hkdInfo = snapshot.val();
-            
-            if (this.hkdInfo) {
-                // Cập nhật tên cửa hàng
-                const storeNameEl = document.getElementById('hkd-store-name');
-                if (storeNameEl) {
-                    storeNameEl.textContent = this.hkdInfo.name || 'Cửa hàng của tôi';
-                }
-                
-                // Lưu vào localStorage để offline
-                localStorage.setItem(`hkd_info_${this.hkdId}`, JSON.stringify(this.hkdInfo));
-            }
-        } catch (error) {
-            console.error('Error loading HKD info:', error);
-            
-            // Thử load từ cache
-            const cachedInfo = localStorage.getItem(`hkd_info_${this.hkdId}`);
-            if (cachedInfo) {
-                this.hkdInfo = JSON.parse(cachedInfo);
-                const storeNameEl = document.getElementById('hkd-store-name');
-                if (storeNameEl && this.hkdInfo.name) {
-                    storeNameEl.textContent = this.hkdInfo.name;
-                }
-            }
-        }
-    }
-    // hkd.js - Thêm hàm để load summary
-async loadSalesHistorySummary() {
-    try {
-        const result = await dbManager.getSalesHistory(this.hkdId);
-        if (result.success && result.data.length > 0) {
-            // Có thể hiển thị số đơn hàng trên nút history
-            const historyFab = document.getElementById('history-fab');
-            if (historyFab) {
-                const badge = document.createElement('span');
-                badge.className = 'fab-badge';
-                badge.textContent = result.data.length > 99 ? '99+' : result.data.length;
-                badge.style.cssText = `
-                    position: absolute;
-                    top: -5px;
-                    right: -5px;
-                    background: #dc3545;
-                    color: white;
-                    border-radius: 50%;
-                    width: 20px;
-                    height: 20px;
-                    font-size: 10px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                `;
-                historyFab.appendChild(badge);
-            }
-        }
-    } catch (error) {
-        console.error('Error loading sales summary:', error);
-    }
-}
-    // hkd.js - Sửa hàm loadData
-// hkd.js - Cập nhật hàm loadData để debug
-async loadData() {
-    try {
-        utils.showLoading('Đang tải dữ liệu...');
+        // Setup event listeners
+        setupHKDEventListeners();
         
-        console.log('=== Loading HKD Data ===');
-        console.log('HKD ID:', this.hkdId);
+        // Hiển thị thông tin HKD
+        displayHKDInfo();
         
-        // Load HKD info
-        await this.loadHKDInfo();
+        // Hiển thị danh sách sản phẩm
+        displayProducts();
         
-        // Load products và categories song song
-        await Promise.all([
-            this.loadProducts(),
-            this.loadCategories()
-        ]);
+        // Khởi tạo giỏ hàng
+        initCart();
         
-        console.log('Data loaded:', {
-            productsCount: Object.keys(this.products).length,
-            categories: this.categories,
-            categoriesLength: this.categories.length
-        });
+        // Hiển thị sidebar
+        initSidebar();
         
-        // Debug: Kiểm tra từng sản phẩm và danh mục
-        if (Object.keys(this.products).length > 0) {
-            console.log('Sample products with categories:');
-            Object.values(this.products).slice(0, 5).forEach(product => {
-                console.log(`- ${product.name}: ${product.category}`);
-            });
-        }
+        console.log('HKD page initialized');
         
-        // Render UI
-        this.renderCategories();
-        this.renderProducts('all');
-        this.updateCartUI();
+        // Khởi tạo realtime sync
+        initHKDRealtimeSync();
         
-        // Load sales history nếu có nút
-        if (document.getElementById('history-fab')) {
-            this.loadSalesHistorySummary();
+        // Kiểm tra dữ liệu từ Firebase (đồng bộ 2 chiều)
+        if (navigator.onLine) {
+            setTimeout(async () => {
+                await syncFromFirebase();
+                await loadHKDData(); // Tải lại dữ liệu mới
+                displayProducts();
+            }, 2000);
         }
         
     } catch (error) {
-        console.error('Error loading data:', error);
-        utils.showNotification('Lỗi tải dữ liệu: ' + error.message, 'error');
-    } finally {
-        utils.hideLoading();
+        console.error('Lỗi khởi tạo HKD page:', error);
+        Utils.showToast('Lỗi khởi tạo hệ thống', 'error');
     }
 }
 
-// hkd.js - Cập nhật hàm loadCategories để debug
-async loadCategories() {
-    try {
-        console.log('=== DEBUG: Loading categories ===');
-        console.log('HKD ID:', this.hkdId);
-        
-        // Thử load từ database trước
-        if (window.dbManager && typeof window.dbManager.getCategories === 'function') {
-            console.log('Using dbManager.getCategories');
-            const result = await window.dbManager.getCategories(this.hkdId);
-            
-            console.log('dbManager result:', result);
-            
-            if (result.success && result.data && Array.isArray(result.data)) {
-                this.categories = result.data;
-                console.log('Categories from dbManager:', this.categories);
-            } else {
-                console.log('dbManager failed, trying Firebase directly');
-                await this.loadCategoriesFromFirebase();
-            }
-        } else {
-            console.log('dbManager not available, using Firebase');
-            await this.loadCategoriesFromFirebase();
+// Khởi tạo realtime sync cho HKD
+function initHKDRealtimeSync() {
+    console.log('🔔 Khởi tạo realtime sync cho HKD...');
+    
+    // Lắng nghe thay đổi kết nối mạng
+    window.addEventListener('online', handleHKDConnectionChange);
+    window.addEventListener('offline', handleHKDConnectionChange);
+    
+    // Bắt đầu sync interval (mỗi 30 giây)
+    hkdSyncInterval = setInterval(() => {
+        if (navigator.onLine && !isSyncing) {
+            syncFromFirebase();
         }
-        
-        // Đảm bảo có ít nhất danh mục "Khác"
-        if (!this.categories.includes('Khác')) {
-            this.categories.push('Khác');
-        }
-        
-        // Đảm bảo có danh mục "Tất cả" cho UI
-        if (!this.categories.includes('Tất cả')) {
-            this.categories.unshift('Tất cả');
-        }
-        
-        // Lưu vào localStorage để offline
-        localStorage.setItem(`categories_${this.hkdId}`, JSON.stringify(this.categories));
-        
-        console.log('Final categories after processing:', this.categories);
-        console.log('Number of categories:', this.categories.length);
-        
-    } catch (error) {
-        console.error('Error loading categories:', error);
-        
-        // Thử load từ cache
-        const cachedCategories = localStorage.getItem(`categories_${this.hkdId}`);
-        if (cachedCategories) {
-            this.categories = JSON.parse(cachedCategories);
-            console.log('Loaded categories from cache:', this.categories);
-        } else {
-            this.categories = ['Tất cả', 'Khác'];
-            console.log('Using default categories');
-        }
-    }
+    }, 30000);
+    
+    // Lắng nghe realtime updates
+    listenForHKDRealtimeUpdates();
 }
-    
-    // Load sản phẩm
-    async loadProducts() {
-        try {
-            const result = await dbManager.getProducts(this.hkdId);
-            
-            if (result.success) {
-                this.products = result.data;
-                
-                // Lưu vào localStorage để offline
-                localStorage.setItem(`products_${this.hkdId}`, JSON.stringify(this.products));
-                
-                console.log(`Loaded ${result.count || Object.keys(this.products).length} products`);
-                
-                // Cập nhật Product Count
-                const productCount = document.getElementById('product-count');
-                if (productCount) {
-                    productCount.textContent = `(${Object.keys(this.products).length} sản phẩm)`;
-                }
-            } else {
-                // Thử load từ cache
-                const cachedProducts = localStorage.getItem(`products_${this.hkdId}`);
-                if (cachedProducts) {
-                    this.products = JSON.parse(cachedProducts);
-                    console.log(`Loaded ${Object.keys(this.products).length} products from cache`);
-                }
-            }
-        } catch (error) {
-            console.error('Error loading products:', error);
-        }
-    }
-    
 
-
-// Thêm hàm mới để load từ Firebase
-async loadCategoriesFromFirebase() {
-    try {
-        const snapshot = await database.ref(`hkds/${this.hkdId}/categories`).once('value');
-        const data = snapshot.val();
-        
-        if (data && Array.isArray(data)) {
-            this.categories = data;
-            console.log('Loaded categories from Firebase:', this.categories);
-        } else {
-            // Nếu không có data, kiểm tra trong products
-            await this.extractCategoriesFromProducts();
-        }
-    } catch (error) {
-        console.error('Error loading from Firebase:', error);
-        await this.extractCategoriesFromProducts();
+// Xử lý thay đổi kết nối mạng
+function handleHKDConnectionChange() {
+    if (navigator.onLine) {
+        console.log('🌐 HKD đã kết nối mạng, đồng bộ dữ liệu...');
+        syncFromFirebase();
+    } else {
+        console.log('📴 HKD mất kết nối, làm việc offline...');
     }
 }
 
-// Thêm hàm extract categories từ products
-async extractCategoriesFromProducts() {
-    try {
-        console.log('Extracting categories from products...');
-        
-        const categoriesSet = new Set(['Khác']);
-        
-        // Lấy tất cả sản phẩm
-        const productsSnapshot = await database.ref(`hkds/${this.hkdId}/products`).once('value');
-        const products = productsSnapshot.val();
-        
-        if (products) {
-            Object.values(products).forEach(product => {
-                if (product.category && product.category.trim() !== '') {
-                    categoriesSet.add(product.category.trim());
-                }
-            });
-        }
-        
-        this.categories = Array.from(categoriesSet);
-        console.log('Extracted categories:', this.categories);
-        
-        // Lưu categories trở lại Firebase để lần sau dùng
-        if (this.categories.length > 0) {
-            await database.ref(`hkds/${this.hkdId}/categories`).set(this.categories);
-        }
-        
-    } catch (error) {
-        console.error('Error extracting categories:', error);
-        this.categories = ['Khác'];
-    }
-}
-    
-    // hkd.js - Sửa hàm renderCategories
-renderCategories() {
-    const categoriesList = document.getElementById('categories-list');
-    if (!categoriesList) {
-        console.error('categories-list element not found');
+async function syncFromFirebase() {
+    if (isSyncing) {
+        console.log('🔄 Đang sync, bỏ qua...');
         return;
     }
     
-    console.log('Rendering categories:', this.categories);
+    isSyncing = true;
+    console.log('⬇️ Đồng bộ từ Firebase về IndexedDB...');
     
-    // Clear existing
-    categoriesList.innerHTML = '';
-    
-    // Luôn có button "Tất cả"
-    const allButton = document.createElement('a');
-    allButton.className = 'category-item active';
-    allButton.dataset.category = 'all';
-    allButton.textContent = 'Tất cả';
-    allButton.href = '#';
-    
-    allButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        this.handleCategoryClick('all', allButton);
-    });
-    
-    categoriesList.appendChild(allButton);
-    
-    // Render các danh mục thực tế (loại bỏ "Tất cả" nếu có trong array)
-    const actualCategories = this.categories.filter(cat => 
-        cat !== 'Tất cả' && cat !== 'all'
-    );
-    
-    if (actualCategories.length === 0) {
-        // Nếu không có danh mục nào, chỉ hiển thị "Khác"
-        const otherButton = document.createElement('a');
-        otherButton.className = 'category-item';
-        otherButton.dataset.category = 'Khác';
-        otherButton.textContent = 'Khác';
-        otherButton.href = '#';
+    try {
+        // THAY VÌ gọi các hàm riêng lẻ, gọi hàm mới tổng hợp
+        await syncHKDDataFromFirebase(currentHKD.id); // ← Hàm vừa sửa
         
-        otherButton.addEventListener('click', (e) => {
-            e.preventDefault();
-            this.handleCategoryClick('Khác', otherButton);
-        });
+        // Tải lại dữ liệu local
+        await loadHKDData();
         
-        categoriesList.appendChild(otherButton);
-    } else {
-        // Render tất cả danh mục
-        actualCategories.forEach(category => {
-            const button = document.createElement('a');
-            button.className = 'category-item';
-            button.dataset.category = category;
-            button.textContent = category;
-            button.href = '#';
-            button.title = category; // Tooltip
-            
-            button.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.handleCategoryClick(category, button);
-            });
-            
-            categoriesList.appendChild(button);
-        });
+        // Cập nhật UI
+        displayProducts();
+        updateCategoryList();
+        
+        console.log('✅ Đã đồng bộ xong từ Firebase');
+        Utils.showToast('Đã cập nhật dữ liệu mới', 'success');
+        
+    } catch (error) {
+        console.error('❌ Lỗi đồng bộ từ Firebase:', error);
+        Utils.showToast('Lỗi đồng bộ dữ liệu', 'error');
+    } finally {
+        isSyncing = false;
     }
-    
-    // Thêm button thêm danh mục mới
-    const addCategoryButton = document.createElement('a');
-    addCategoryButton.className = 'category-item add-category';
-    addCategoryButton.innerHTML = '<i class="fas fa-plus"></i> Thêm';
-    addCategoryButton.href = '#';
-    addCategoryButton.title = 'Thêm danh mục mới';
-    
-    addCategoryButton.addEventListener('click', (e) => {
-        e.preventDefault();
-        this.showAddCategoryModal();
-    });
-    
-    categoriesList.appendChild(addCategoryButton);
 }
 
-// Thêm hàm handleCategoryClick
-handleCategoryClick(category, buttonElement) {
-    // Update active state
-    document.querySelectorAll('.category-item').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    buttonElement.classList.add('active');
-    
-    // Render products for this category
-    this.renderProducts(category);
-    
-    console.log('Category selected:', category);
-}
-
-// Thêm hàm showAddCategoryModal
-showAddCategoryModal() {
-    const modalContent = `
-        <div style="padding: 20px;">
-            <h3 style="margin-bottom: 20px;">Thêm danh mục mới</h3>
-            <div class="form-group">
-                <label for="new-category-name">Tên danh mục</label>
-                <input type="text" id="new-category-name" 
-                       placeholder="Nhập tên danh mục mới" 
-                       style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 5px;">
-            </div>
-            <div class="form-group">
-                <label for="category-color">Màu sắc (tùy chọn)</label>
-                <input type="color" id="category-color" value="#007bff" 
-                       style="width: 100%; height: 40px; margin-bottom: 15px;">
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                <button class="hkd-btn hkd-btn-secondary" id="cancel-add-category">Hủy</button>
-                <button class="hkd-btn hkd-btn-primary" id="save-new-category">Lưu</button>
-            </div>
-        </div>
-    `;
-    
-    const modal = utils.createModal('Thêm danh mục mới', modalContent, []);
-    
-    // Xử lý lưu
-    modal.querySelector('#save-new-category').addEventListener('click', async () => {
-        const categoryName = modal.querySelector('#new-category-name').value.trim();
+// Đồng bộ thông tin HKD từ Firebase
+async function syncHKDInfoFromFirebase() {
+    try {
+        await initFirebase();
         
-        if (!categoryName) {
-            utils.showNotification('Vui lòng nhập tên danh mục', 'error');
-            return;
-        }
+        const hkdRef = firebase.database().ref(`hkds/${currentHKD.id}/info`);
+        const snapshot = await hkdRef.once('value');
+        const hkdData = snapshot.val();
         
-        if (this.categories.includes(categoryName)) {
-            utils.showNotification('Danh mục đã tồn tại', 'warning');
-            return;
-        }
-        
-        try {
-            utils.showLoading('Đang thêm danh mục...');
+        if (hkdData) {
+            // Kiểm tra xem có cần cập nhật không
+            const localHKD = await getFromStore(STORES.HKDS, currentHKD.id);
             
-            // Thêm vào local categories
-            this.categories.push(categoryName);
-            
-            // Update lên Firebase
-            await database.ref(`hkds/${this.hkdId}/categories`).set(this.categories);
-            
-            // Lưu vào localStorage
-            localStorage.setItem(`categories_${this.hkdId}`, JSON.stringify(this.categories));
-            
-            // Re-render categories
-            this.renderCategories();
-            
-            utils.showNotification(`Đã thêm danh mục "${categoryName}"`, 'success');
-            
-            // Đóng modal
-            modal.close();
-            
-        } catch (error) {
-            console.error('Error adding category:', error);
-            utils.showNotification('Lỗi thêm danh mục: ' + error.message, 'error');
-        } finally {
-            utils.hideLoading();
-        }
-    });
-    
-    // Xử lý hủy
-    modal.querySelector('#cancel-add-category').addEventListener('click', () => {
-        modal.close();
-    });
-}
-    
-    // Render sản phẩm theo danh mục
-    renderProducts(category = 'all') {
-        const productsGrid = document.getElementById('products-grid');
-        if (!productsGrid) return;
-        
-        if (Object.keys(this.products).length === 0) {
-            productsGrid.innerHTML = `
-                <div class="empty-products">
-                    <div class="empty-icon">📦</div>
-                    <p>Chưa có sản phẩm nào</p>
-                    <button onclick="window.hkdManager.showAddProductModal()" class="hkd-btn hkd-btn-primary" style="margin-top: 20px;">
-                        <i class="fas fa-plus"></i>
-                        Thêm sản phẩm đầu tiên
-                    </button>
-                </div>
-            `;
-            return;
-        }
-        
-        // Filter products by category
-        let filteredProducts = Object.values(this.products);
-        if (category !== 'all') {
-            filteredProducts = filteredProducts.filter(product => 
-                product.category === category
-            );
-        }
-        
-        if (filteredProducts.length === 0) {
-            productsGrid.innerHTML = `
-                <div class="empty-products">
-                    <div class="empty-icon">🔍</div>
-                    <p>Không có sản phẩm nào trong danh mục này</p>
-                </div>
-            `;
-            return;
-        }
-        
-        // Render products grid
-        productsGrid.innerHTML = '';
-        
-        filteredProducts.forEach(product => {
-            const productCard = this.createProductCard(product);
-            productsGrid.appendChild(productCard);
-        });
-        
-        // Update quantity displays
-        this.updateProductQuantities();
-    }
-    
-    // Tạo product card
-    createProductCard(product) {
-        const productCard = document.createElement('div');
-        productCard.className = 'product-card';
-        productCard.dataset.productId = product.id;
-        
-        const isOutOfStock = (product.stock || 0) <= 0;
-        
-        productCard.innerHTML = `
-            <div class="product-image">
-                ${product.imageUrl ? `<img src="${product.imageUrl}" alt="${product.name}" style="width: 100%; height: 100%; object-fit: cover;">` : '📦'}
-            </div>
-            <div class="product-info">
-                <h3 class="product-name" title="${product.name}">${product.name}</h3>
-                <div class="product-price">${utils.formatCurrency(product.price || 0)}</div>
-                <div class="product-stock ${isOutOfStock ? 'out-of-stock' : ''}">
-                    ${isOutOfStock ? 'Hết hàng' : `Còn: ${product.stock} ${product.unit || 'cái'}`}
-                </div>
-            </div>
-            <div class="product-actions">
-                <button class="qty-btn minus-btn" ${isOutOfStock ? 'disabled' : ''}>
-                    <i class="fas fa-minus"></i>
-                </button>
-                <span class="product-quantity" id="qty-${product.id}">0</span>
-                <button class="qty-btn plus-btn" ${isOutOfStock ? 'disabled' : ''}>
-                    <i class="fas fa-plus"></i>
-                </button>
-            </div>
-        `;
-        
-        // Add event listeners
-        const minusBtn = productCard.querySelector('.minus-btn');
-        const plusBtn = productCard.querySelector('.plus-btn');
-        
-        minusBtn.addEventListener('click', () => this.removeFromCart(product.id));
-        plusBtn.addEventListener('click', () => this.addToCart(product));
-        
-        return productCard;
-    }
-
-    // Cập nhật số lượng sản phẩm trong giỏ hàng trên UI
-    updateProductQuantities() {
-        // Check for null/undefined this.currentCart
-        if (!this.currentCart || !this.currentCart.items) {
-             return;
-        }
-
-        // Reset tất cả quantities về 0 (để tránh hiển thị sai khi lọc danh mục)
-        document.querySelectorAll('.product-quantity').forEach(el => el.textContent = '0');
-        
-        // Cập nhật các sản phẩm trong giỏ hàng
-        this.currentCart.items.forEach(item => {
-            const qtyEl = document.getElementById(`qty-${item.product_id}`);
-            if (qtyEl) {
-                qtyEl.textContent = item.quantity;
-            }
-        });
-    }
-    
-    // Khôi phục giỏ hàng từ localStorage
-    restoreCart() {
-        const savedCart = localStorage.getItem('current_cart');
-        
-        if (savedCart) {
-            try {
-                this.currentCart = JSON.parse(savedCart);
+            if (!localHKD || new Date(hkdData.lastUpdated) > new Date(localHKD.lastUpdated)) {
+                // Cập nhật thông tin HKD
+                const updatedHKD = {
+                    ...localHKD,
+                    ...hkdData,
+                    id: currentHKD.id,
+                    role: 'hkd'
+                };
                 
-                // Kiểm tra xem cart có thuộc về HKD hiện tại không
-                if (this.currentCart.hkdId !== this.hkdId) {
-                    this.currentCart = this.createNewCart();
-                } else {
-                    this.updateCartUI(); // Cập nhật giao diện giỏ hàng sau khi khôi phục
+                await updateInStore(STORES.HKDS, updatedHKD);
+                
+                // Cập nhật currentHKD nếu cần
+                if (hkdData.name !== currentHKD.name) {
+                    currentHKD = updatedHKD;
+                    displayHKDInfo();
                 }
-            } catch (error) {
-                console.error('Error restoring cart:', error);
-                this.currentCart = this.createNewCart();
+                
+                console.log('✅ Đã cập nhật thông tin HKD');
             }
-        } else {
-            this.currentCart = this.createNewCart();
         }
+    } catch (error) {
+        console.error('❌ Lỗi sync HKD info:', error);
     }
-    
-    // Tạo giỏ hàng mới
-    createNewCart() {
-        return {
-            hkdId: this.hkdId,
-            items: [],
-            subtotal: 0,
-            discount: 0,
-            tax: 0,
-            total: 0,
-            lastUpdated: Date.now()
-        };
-    }
-    
-    // Tính toán tổng giỏ hàng
-    calculateTotals() {
-        if (!this.currentCart) return;
+}
 
-        let subtotal = 0;
-        this.currentCart.items.forEach(item => {
-            subtotal += item.total;
-        });
-
-        // Áp dụng thuế (nếu có)
-        const taxRate = this.hkdInfo?.settings?.taxRate || 0;
-        const tax = subtotal * (taxRate / 100);
+// Sửa hàm syncCategoriesFromFirebase trong hkd.js
+async function syncCategoriesFromFirebase() {
+    try {
+        await initFirebase();
         
-        // Discount (tạm thời không xử lý phức tạp)
-        const discount = this.currentCart.discount || 0;
-
-        const total = subtotal + tax - discount;
-
-        this.currentCart.subtotal = subtotal;
-        this.currentCart.tax = tax;
-        this.currentCart.total = total;
-        this.currentCart.lastUpdated = Date.now();
-    }
-
-    // Lưu giỏ hàng vào localStorage
-    saveCart() {
-        this.calculateTotals();
-        localStorage.setItem('current_cart', JSON.stringify(this.currentCart));
-        this.updateCartUI();
-    }
-    
-    // Xóa giỏ hàng
-    clearCart() {
-        if (this.currentCart && this.currentCart.items.length > 0) {
-            if (confirm('Bạn có chắc muốn xóa tất cả sản phẩm trong giỏ hàng?')) {
-                 this.currentCart = this.createNewCart();
-                 this.saveCart();
-                 utils.showNotification('Đã xóa giỏ hàng', 'info');
-            }
-        } else {
-            utils.showNotification('Giỏ hàng đã trống', 'info');
-        }
-    }
-    
-    // Cập nhật UI giỏ hàng
-    updateCartUI() {
-        if (!this.currentCart) return;
+        const categoriesRef = firebase.database().ref(`hkds/${currentHKD.id}/categories`);
+        const snapshot = await categoriesRef.once('value');
+        const categoriesData = snapshot.val();
         
-        // Elements that exist in the minimal hkd.html footer
-        const cartTotalEl = document.getElementById('cart-total');
-        const cartCountEl = document.getElementById('cart-count');
-        const checkoutBtn = document.getElementById('checkout-btn');
-        const clearCartBtn = document.getElementById('clear-cart-btn');
-
-        // Elements that are MISSING in the minimal hkd.html (optional for detailed UI)
-        const cartItems = document.getElementById('cart-items'); 
-        const cartSubtotalEl = document.getElementById('cart-subtotal');
-        const cartTaxEl = document.getElementById('cart-tax');
-        const cartDiscountEl = document.getElementById('cart-discount');
-        
-        this.calculateTotals();
-        
-        let totalItemsCount = this.currentCart.items.reduce((sum, item) => sum + item.quantity, 0);
-        const isCartEmpty = this.currentCart.items.length === 0;
-
-        // --- RENDER DETAILED CART ITEMS (Only if the container exists) ---
-        if (cartItems) {
-            cartItems.innerHTML = '';
+        if (categoriesData) {
+            let updatedCount = 0;
+            let deletedCount = 0;
             
-            if (isCartEmpty) {
-                cartItems.innerHTML = '<div class="empty-cart">Giỏ hàng trống</div>';
-            } else {
-                this.currentCart.items.forEach(item => {
-                    const cartItem = document.createElement('div');
-                    cartItem.className = 'cart-item';
-                    cartItem.innerHTML = `
-                        <div class="cart-item-info">
-                            <div class="cart-item-name">${item.name}</div>
-                            <div class="cart-item-details">
-                                ${utils.formatCurrency(item.price)} x ${item.quantity} 
-                                <strong style="float: right;">${utils.formatCurrency(item.total)}</strong>
-                            </div>
-                        </div>
-                        <div class="cart-item-actions">
-                            <button class="cart-item-btn minus-btn" data-product-id="${item.product_id}" title="Giảm">
-                                <i class="fas fa-minus"></i>
-                            </button>
-                            <span class="cart-item-qty">${item.quantity}</span>
-                            <button class="cart-item-btn plus-btn" data-product-id="${item.product_id}" title="Tăng">
-                                <i class="fas fa-plus"></i>
-                            </button>
-                            <button class="cart-item-btn delete-btn" data-product-id="${item.product_id}" title="Xóa">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    `;
-                    cartItems.appendChild(cartItem);
+            for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+                // Chỉ lấy danh mục (không lấy sản phẩm)
+                if (categoryData && categoryData.name && !categoryData.msp) {
                     
-                    // Add event listeners
-                    cartItem.querySelector('.minus-btn').addEventListener('click', () => {
-                        this.removeFromCart(item.product_id);
-                    });
-                    cartItem.querySelector('.plus-btn').addEventListener('click', () => {
-                        const product = this.products[item.product_id];
-                        if (product) {
-                            this.addToCart(product);
-                        } else {
-                             utils.showNotification('Không tìm thấy thông tin sản phẩm', 'error');
+                    // Kiểm tra nếu danh mục đã bị xóa trên Firebase
+                    if (categoryData._deleted === true) {
+                        // Xóa khỏi IndexedDB - QUAN TRỌNG: không thêm vào sync queue
+                        await deleteFromStore(STORES.CATEGORIES, categoryId);
+                        
+                        // Đồng thời xóa TẤT CẢ sản phẩm trong danh mục này
+                        const productsInCategory = await getProductsByCategory(currentHKD.id, categoryId);
+                        for (const product of productsInCategory) {
+                            await deleteFromStore(STORES.PRODUCTS, product.id);
                         }
-                    });
-                    cartItem.querySelector('.delete-btn').addEventListener('click', () => {
-                        this.removeItemFromCart(item.product_id);
-                    });
+                        
+                        deletedCount++;
+                        console.log(`🗑️ Đã xóa danh mục ${categoryId} và sản phẩm liên quan (từ Firebase)`);
+                        continue;
+                    }
+                    
+                    const localCategory = await getFromStore(STORES.CATEGORIES, categoryId);
+                    
+                    // Nếu đây là thao tác xóa từ Admin, KHÔNG được ghi đè ngược
+                    if (localCategory && localCategory._deleted === true) {
+                        console.log(`⚠️ Bỏ qua danh mục ${categoryId} - đã bị xóa bởi Admin`);
+                        continue;
+                    }
+                    
+                    // Kiểm tra xem có cần cập nhật không
+                    if (!localCategory || new Date(categoryData.lastUpdated) > new Date(localCategory.lastUpdated)) {
+                        await updateInStore(STORES.CATEGORIES, {
+                            ...categoryData,
+                            id: categoryId,
+                            hkdId: currentHKD.id,
+                            _isFromFirebase: true // Đánh dấu là từ Firebase
+                        });
+                        updatedCount++;
+                    }
+                }
+            }
+            
+            if (updatedCount > 0 || deletedCount > 0) {
+                console.log(`✅ Đã sync ${updatedCount} danh mục, xóa ${deletedCount} danh mục từ Firebase`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Lỗi sync categories:', error);
+    }
+}
+
+// Sửa hàm syncProductsFromFirebase
+async function syncProductsFromFirebase() {
+    try {
+        await initFirebase();
+        
+        const categoriesRef = firebase.database().ref(`hkds/${currentHKD.id}/categories`);
+        const snapshot = await categoriesRef.once('value');
+        const categoriesData = snapshot.val();
+        
+        if (categoriesData) {
+            let updatedCount = 0;
+            let deletedCount = 0;
+            
+            for (const [categoryId, categoryOrProducts] of Object.entries(categoriesData)) {
+                // Duyệt qua tất cả items trong danh mục
+                for (const [itemId, itemData] of Object.entries(categoryOrProducts)) {
+                    // Nếu có msp => đây là sản phẩm
+                    if (itemData && itemData.msp) {
+                        
+                        // Kiểm tra nếu sản phẩm đã bị xóa trên Firebase
+                        if (itemData._deleted === true) {
+                            // Xóa khỏi IndexedDB - KHÔNG thêm vào sync queue
+                            await deleteFromStore(STORES.PRODUCTS, itemId);
+                            deletedCount++;
+                            console.log(`🗑️ Đã xóa sản phẩm ${itemId} (từ Firebase)`);
+                            continue;
+                        }
+                        
+                        const localProduct = await getFromStore(STORES.PRODUCTS, itemId);
+                        
+                        // Nếu đây là thao tác xóa từ Admin, KHÔNG được ghi đè ngược
+                        if (localProduct && localProduct._deleted === true) {
+                            console.log(`⚠️ Bỏ qua sản phẩm ${itemId} - đã bị xóa bởi Admin`);
+                            continue;
+                        }
+                        
+                        // Kiểm tra xem có cần cập nhật không
+                        if (!localProduct || new Date(itemData.lastUpdated) > new Date(localProduct.lastUpdated)) {
+                            await updateInStore(STORES.PRODUCTS, {
+                                ...itemData,
+                                id: itemId,
+                                hkdId: currentHKD.id,
+                                categoryId: categoryId,
+                                _isFromFirebase: true // Đánh dấu là từ Firebase
+                            });
+                            updatedCount++;
+                        }
+                    }
+                }
+            }
+            
+            if (updatedCount > 0 || deletedCount > 0) {
+                console.log(`✅ Đã sync ${updatedCount} sản phẩm, xóa ${deletedCount} sản phẩm từ Firebase`);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Lỗi sync products:', error);
+    }
+}
+
+// Thêm hàm kiểm tra trước khi lưu
+async function saveProductWithCheck(productData) {
+    try {
+        // Kiểm tra xem sản phẩm này có bị xóa trên Firebase không
+        await initFirebase();
+        
+        const productRef = firebase.database().ref(`hkds/${currentHKD.id}/categories/${productData.categoryId}/${productData.id}`);
+        const snapshot = await productRef.once('value');
+        const firebaseProduct = snapshot.val();
+        
+        if (firebaseProduct && firebaseProduct._deleted === true) {
+            console.log(`⚠️ Sản phẩm ${productData.id} đã bị xóa bởi Admin, không được tạo lại`);
+            Utils.showToast('Sản phẩm đã bị xóa bởi Admin', 'error');
+            return false;
+        }
+        
+        // Lưu vào IndexedDB
+        await saveProduct(productData);
+        
+        // CHỈ thêm vào sync queue nếu KHÔNG có flag _isFromFirebase
+        if (!productData._isFromFirebase) {
+            if (typeof window.addToSyncQueue === 'function') {
+                await window.addToSyncQueue({
+                    type: 'products',
+                    data: productData
                 });
             }
-            
-            // Update detailed totals (Only if containers exist)
-            if (cartSubtotalEl) cartSubtotalEl.textContent = utils.formatCurrency(this.currentCart.subtotal);
-            if (cartDiscountEl) cartDiscountEl.textContent = utils.formatCurrency(this.currentCart.discount);
-            if (cartTaxEl) cartTaxEl.textContent = utils.formatCurrency(this.currentCart.tax);
         }
-        // --- END DETAILED CART ITEMS ---
+        
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Lỗi kiểm tra và lưu sản phẩm:', error);
+        return false;
+    }
+}
 
-        // --- UPDATE FOOTER ELEMENTS (These exist in hkd.html) ---
-        if (cartTotalEl) cartTotalEl.textContent = utils.formatCurrency(this.currentCart.total);
-        
-        if (cartCountEl) {
-            cartCountEl.textContent = totalItemsCount > 99 ? '99+' : totalItemsCount;
-        }
-        
-        if (checkoutBtn) checkoutBtn.disabled = isCartEmpty;
-        if (clearCartBtn) clearCartBtn.disabled = isCartEmpty;
-        
-        // Update product grid quantities
-        this.updateProductQuantities();
-    }
-    
-    // Thêm sản phẩm vào giỏ hàng
-    addToCart(product) {
-        if ((product.stock || 0) <= 0) {
-            utils.showNotification('Sản phẩm đã hết hàng', 'warning');
-            return;
-        }
-        
-        // Tìm sản phẩm trong giỏ hàng
-        const existingItem = this.currentCart.items.find(item => item.product_id === product.id);
-        
-        if (existingItem) {
-            // Kiểm tra tồn kho
-            if (existingItem.quantity >= (product.stock || 0)) {
-                utils.showNotification('Đã đạt giới hạn tồn kho', 'warning');
-                return;
-            }
-            
-            existingItem.quantity += 1;
-            existingItem.total = existingItem.price * existingItem.quantity;
-        } else {
-            // Thêm sản phẩm mới vào giỏ hàng 
-            this.currentCart.items.push({
-                product_id: product.id,
-                name: product.name,
-                price: product.price || 0,
-                cost: product.cost || 0, // Lưu giá vốn
-                quantity: 1,
-                total: product.price || 0,
-                unit: product.unit || 'cái'
-            });
-        }
-        
-        this.saveCart();
-        this.playAddToCartSound();
-    }
-    
-    // Giảm số lượng sản phẩm trong giỏ hàng
-    removeFromCart(productId) {
-        const index = this.currentCart.items.findIndex(item => item.product_id === productId);
 
-        if (index !== -1) {
-            const item = this.currentCart.items[index];
-            item.quantity -= 1;
-            
-            if (item.quantity <= 0) {
-                // Xóa khỏi giỏ hàng nếu số lượng về 0
-                this.currentCart.items.splice(index, 1);
-            } else {
-                item.total = item.price * item.quantity;
-            }
-            
-            this.saveCart();
-        }
-    }
-    
-    // Xóa hoàn toàn sản phẩm khỏi giỏ hàng
-    removeItemFromCart(productId) {
-        const index = this.currentCart.items.findIndex(item => item.product_id === productId);
-        
-        if (index !== -1) {
-            this.currentCart.items.splice(index, 1);
-            this.saveCart();
-            utils.showNotification('Đã xóa sản phẩm khỏi giỏ hàng', 'info');
-        }
-    }
-    // Hàm xử lý checkout nhanh
-async processQuickCheckout(modal) {
-    const customerName = modal.querySelector('#quick-customer-name').value.trim() || 'Khách vãng lai';
-    
-    modal.querySelector('#quick-confirm-btn').disabled = true;
-    utils.showLoading('Đang xử lý thanh toán...');
-    
-    // Tạo sale data với mapping sản phẩm đầy đủ
-    const saleData = {
-        items: this.currentCart.items.map(item => {
-            // Tìm thông tin đầy đủ của sản phẩm
-            const product = this.products[item.product_id];
-            
-            // Đảm bảo tất cả giá trị không phải undefined
-            return {
-                product_id: item.product_id || '',
-                code: product?.code || item.product_id || '', // Mã sản phẩm
-                displayName: item.name || '', // Tên thường gọi (hiển thị)
-                originalName: product?.originalName || item.name || '', // Tên gốc
-                name: item.name || '',
-                price: item.price || 0,
-                cost: item.cost || 0,
-                quantity: item.quantity || 1,
-                total: item.total || 0,
-                unit: item.unit || 'cái',
-                metadata: {
-                    code: product?.code || item.product_id || '',
-                    originalName: product?.originalName || item.name || '',
-                    displayName: item.name || ''
-                }
-            };
-        }),
-        subtotal: this.currentCart.subtotal || 0,
-        discount: this.currentCart.discount || 0,
-        tax: this.currentCart.tax || 0,
-        total: this.currentCart.total || 0,
-        customer: customerName,
-        paymentMethod: 'cash', // Mặc định tiền mặt
-        timestamp: Date.now(),
-        hkdId: this.hkdId,
-        hkdName: this.hkdInfo?.name || 'HKD'
-    };
-    
+
+// Đồng bộ hóa đơn từ Firebase
+async function syncInvoicesFromFirebase() {
     try {
-        const result = await dbManager.createSale(this.hkdId, saleData);
+        await initFirebase();
         
-        if (result.success) {
-            utils.showNotification('✅ Thanh toán thành công!', 'success');
+        const invoicesRef = firebase.database().ref(`hkds/${currentHKD.id}/invoices`);
+        const snapshot = await invoicesRef.once('value');
+        const invoicesData = snapshot.val();
+        
+        if (invoicesData) {
+            let updatedCount = 0;
+            let deletedCount = 0;
             
-            // Hiển thị hóa đơn
-            this.showInvoiceModal(result.data.saleId, saleData);
+            for (const [invoiceId, invoiceData] of Object.entries(invoicesData)) {
+                
+                // Kiểm tra nếu hóa đơn đã bị xóa trên Firebase
+                if (invoiceData._deleted === true) {
+                    // Xóa khỏi IndexedDB
+                    await deleteFromStore(STORES.INVOICES, invoiceId);
+                    deletedCount++;
+                    console.log(`🗑️ Đã xóa hóa đơn ${invoiceId} (từ Firebase)`);
+                    continue;
+                }
+                
+                const localInvoice = await getFromStore(STORES.INVOICES, invoiceId);
+                
+                // Kiểm tra xem có cần cập nhật không
+                if (!localInvoice || new Date(invoiceData.lastUpdated) > new Date(localInvoice.lastUpdated)) {
+                    await updateInStore(STORES.INVOICES, {
+                        ...invoiceData,
+                        id: invoiceId,
+                        hkdId: currentHKD.id
+                    });
+                    updatedCount++;
+                }
+            }
             
-            // Reset giỏ hàng
-            this.currentCart = this.createNewCart();
-            this.saveCart();
-            
-        } else {
-            if (result.error && result.error.includes('Offline mode')) {
-                utils.showNotification('⚠️ Đã lưu đơn hàng offline', 'warning', 6000);
-                this.showInvoiceModal(result.saleId, saleData, true);
-                this.currentCart = this.createNewCart();
-                this.saveCart();
-            } else {
-                utils.showNotification(`Lỗi: ${result.error || 'Không xác định'}`, 'error', 6000);
+            if (updatedCount > 0 || deletedCount > 0) {
+                console.log(`✅ Đã sync ${updatedCount} hóa đơn, xóa ${deletedCount} hóa đơn`);
             }
         }
     } catch (error) {
-        console.error('Checkout error:', error);
-        utils.showNotification('Lỗi hệ thống khi thanh toán.', 'error', 6000);
-    } finally {
-        utils.hideLoading();
-        if (modal && modal.remove) modal.remove();
-        this.loadProducts(); // Reload products
+        console.error('❌ Lỗi sync invoices:', error);
     }
 }
-    // Bắt đầu quy trình thanh toán
-    checkout() {
-    if (this.currentCart.items.length === 0) {
-        utils.showNotification('Giỏ hàng trống', 'warning');
+// Hàm thiết lập listener cho sản phẩm trong một danh mục cụ thể
+async function setupProductListenersForCategory(categoryId) {
+    console.log(`🎧 Thiết lập product listeners cho danh mục ${categoryId}`);
+    
+    try {
+        await initFirebase();
+        
+        const productsRef = firebase.database().ref(
+            `hkds/${currentHKD.id}/categories/${categoryId}/products`
+        );
+        
+        // a) Khi hàng hóa bị xóa
+        productsRef.on('child_removed', async (snapshot) => {
+            const productId = snapshot.key;
+            console.log(`🗑️ [REALTIME] Sản phẩm ${productId} đã bị xóa từ Admin`);
+            
+            // Xóa khỏi IndexedDB
+            await deleteFromStore(STORES.PRODUCTS, productId);
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast('Sản phẩm đã bị xóa', 'warning');
+        });
+        
+        // b) Khi hàng hóa thay đổi
+        productsRef.on('child_changed', async (snapshot) => {
+            const productId = snapshot.key;
+            const productData = snapshot.val();
+            
+            console.log(`🔄 [REALTIME] Sản phẩm ${productId} đã thay đổi:`, productData?.name);
+            
+            // Cập nhật sản phẩm
+            await updateInStore(STORES.PRODUCTS, {
+                id: productId,
+                hkdId: currentHKD.id,
+                categoryId: categoryId,
+                ...productData,
+                _synced: true
+            });
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast(`Sản phẩm "${productData.name}" đã được cập nhật`, 'info');
+        });
+        
+        // c) Khi có hàng hóa mới
+        productsRef.on('child_added', async (snapshot) => {
+            const productId = snapshot.key;
+            const productData = snapshot.val();
+            
+            console.log(`🆕 [REALTIME] Sản phẩm mới ${productId}:`, productData?.name);
+            
+            // Thêm sản phẩm mới
+            await updateInStore(STORES.PRODUCTS, {
+                id: productId,
+                hkdId: currentHKD.id,
+                categoryId: categoryId,
+                ...productData,
+                _synced: true
+            });
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast(`Sản phẩm mới: "${productData.name}"`, 'success');
+        });
+        
+        console.log(`✅ Đã thiết lập product listeners cho danh mục ${categoryId}`);
+        
+        // Lưu reference để cleanup sau
+        if (!window.productListeners) window.productListeners = [];
+        window.productListeners.push(productsRef);
+        
+    } catch (error) {
+        console.error(`❌ Lỗi thiết lập listener cho danh mục ${categoryId}:`, error);
+    }
+}
+async function listenForHKDRealtimeUpdates() {
+    console.log('🎧 Bắt đầu lắng nghe realtime updates cho HKD...');
+    
+    if (!navigator.onLine) {
+        console.log('📴 Đang offline, không thể lắng nghe');
         return;
     }
-
-    // Tải lại thông tin giỏ hàng
-    this.calculateTotals();
-
-    const totalVND = utils.formatCurrency(this.currentCart.total);
     
-    // Tạo modal đơn giản
-    const modalContent = `
-        <div style="text-align: center; padding: 20px 0;">
-            <div style="font-size: 48px; color: #28a745; margin-bottom: 15px;">
-                <i class="fas fa-shopping-cart"></i>
-            </div>
-            <h3 style="margin-bottom: 10px;">Xác nhận thanh toán</h3>
-            <p style="font-size: 1.2rem; color: #333; margin-bottom: 20px;">Tổng cộng: <strong style="color: #dc3545; font-size: 1.4rem;">${totalVND}</strong></p>
+    try {
+        await initFirebase();
+        
+        // ==================== 1. LẮNG NGHE DANH MỤC ====================
+        const categoriesRef = firebase.database().ref(`hkds/${currentHKD.id}/categories`);
+        
+        // a) Khi danh mục bị xóa (Admin xóa danh mục)
+        categoriesRef.on('child_removed', async (snapshot) => {
+            const categoryId = snapshot.key;
+            console.log(`🗑️ [REALTIME] Danh mục ${categoryId} đã bị xóa từ Admin`);
             
-            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                <p style="margin-bottom: 10px;"><strong>Chi tiết đơn hàng:</strong></p>
-                <div style="max-height: 150px; overflow-y: auto; text-align: left;">
-                    ${this.currentCart.items.map(item => `
-                        <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dotted #eee;">
-                            <span>${item.name} x ${item.quantity}</span>
-                            <span>${utils.formatCurrency(item.total)}</span>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
+            // Xóa danh mục khỏi IndexedDB
+            await deleteFromStore(STORES.CATEGORIES, categoryId);
             
-            <div class="hkd-form-group" style="margin-top: 20px;">
-                <label for="quick-customer-name" style="text-align: left; display: block; margin-bottom: 8px;">
-                    Tên khách hàng <span style="color: #6c757d; font-size: 0.9rem;">(Nhấn Enter để bỏ qua)</span>
-                </label>
-                <input type="text" id="quick-customer-name" 
-                       placeholder="Khách vãng lai" 
-                       style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px;"
-                       autofocus>
-                <p style="color: #6c757d; font-size: 0.85rem; margin-top: 5px; text-align: left;">
-                    Nhập tên khách hàng hoặc nhấn Enter để sử dụng tên mặc định
-                </p>
-            </div>
-        </div>
-    `;
+            // Xóa TẤT CẢ sản phẩm trong danh mục này
+            const products = await getProductsByHKD(currentHKD.id);
+            const categoryProducts = products.filter(p => p.categoryId === categoryId);
+            
+            for (const product of categoryProducts) {
+                await deleteFromStore(STORES.PRODUCTS, product.id);
+            }
+            
+            console.log(`✅ Đã xóa ${categoryProducts.length} sản phẩm trong danh mục`);
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            updateCategoryList();
+            
+            Utils.showToast(`Đã xóa danh mục (${categoryProducts.length} sản phẩm)`, 'warning');
+        });
+        
+        // ==================== 2. LẮNG NGHE HÀNG HÓA TRONG TỪNG DANH MỤC ====================
+        // Lấy tất cả danh mục hiện có và lắng nghe từng danh mục
+        const categoriesSnapshot = await categoriesRef.once('value');
+        const categoriesData = categoriesSnapshot.val();
+        
+        if (categoriesData) {
+            for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+                if (!categoryData || !categoryData.name) continue;
+                
+                // Lắng nghe sản phẩm trong danh mục này
+                await setupProductListenersForCategory(categoryId);
+            }
+        }
+        
+        // ==================== 3. LẮNG NGHE DANH MỤC MỚI ĐỂ THIẾT LẬP LISTENER CHO NÓ ====================
+        categoriesRef.on('child_added', async (snapshot) => {
+            const categoryId = snapshot.key;
+            const categoryData = snapshot.val();
+            
+            console.log(`🆕 [REALTIME] Danh mục mới ${categoryId}: "${categoryData?.name}"`);
+            
+            // Thêm danh mục
+            await updateInStore(STORES.CATEGORIES, {
+                id: categoryId,
+                hkdId: currentHKD.id,
+                name: categoryData.name,
+                description: categoryData.description || '',
+                createdAt: categoryData.createdAt || new Date().toISOString(),
+                lastUpdated: categoryData.lastUpdated || new Date().toISOString(),
+                _synced: true
+            });
+            
+            // Thiết lập listener cho sản phẩm trong danh mục mới
+            await setupProductListenersForCategory(categoryId);
+            
+            // Cập nhật UI
+            await loadHKDData();
+            updateCategoryList();
+            
+            Utils.showToast(`Danh mục mới: "${categoryData.name}"`, 'success');
+        });
+        
+        console.log('✅ Đã bật realtime listener cho HKD');
+        
+    } catch (error) {
+        console.error('❌ Lỗi khi lắng nghe realtime updates:', error);
+    }
+}
 
-    // Tạo modal
-    const modal = document.createElement('div');
-    modal.className = 'hkd-modal show';
-    modal.innerHTML = `
-        <div class="hkd-modal-content" style="max-width: 400px;">
-            <div class="hkd-modal-body">
-                ${modalContent}
-            </div>
-            <div class="hkd-modal-footer" style="justify-content: center; padding: 20px;">
-                <button class="hkd-btn hkd-btn-secondary" id="quick-cancel-btn" style="margin-right: 10px;">Hủy</button>
-                <button class="hkd-btn hkd-btn-primary" id="quick-confirm-btn">
-                    <i class="fas fa-check"></i> Xác nhận
-                </button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
+// Force sync từ Firebase
+async function forceSync() {
+    if (isSyncing) {
+        console.log('🔄 Đang sync, bỏ qua...');
+        return;
+    }
+    
+    Utils.showLoading('Đang đồng bộ dữ liệu...');
+    
+    try {
+        await syncFromFirebase();
+        Utils.showToast('Đồng bộ hoàn tất', 'success');
+        
+    } catch (error) {
+        console.error('❌ Lỗi force sync:', error);
+        Utils.showToast('Lỗi đồng bộ', 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
 
-    // Focus vào input
-    setTimeout(() => {
-        const input = modal.querySelector('#quick-customer-name');
-        if (input) input.focus();
-    }, 100);
+// Dọn dẹp khi page unload
+function cleanupHKD() {
+    if (hkdSyncInterval) {
+        clearInterval(hkdSyncInterval);
+    }
+    
+    window.removeEventListener('online', handleHKDConnectionChange);
+    window.removeEventListener('offline', handleHKDConnectionChange);
+    
+    console.log('🧹 Đã dọn dẹp HKD sync');
+}
 
-    // Xử lý nhấn Enter
-    modal.querySelector('#quick-customer-name').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            modal.querySelector('#quick-confirm-btn').click();
+
+// Tải dữ liệu HKD
+async function loadHKDData() {
+    Utils.showLoading('Đang tải dữ liệu...');
+    
+    try {
+        // Tải sản phẩm
+        products = await getProductsByHKD(currentHKD.id);
+        
+        // Tải danh mục
+        categories = await getCategoriesByHKD(currentHKD.id);
+        
+        // Tải lịch sử hóa đơn
+        invoiceHistory = await getInvoicesByHKD(currentHKD.id);
+        invoiceHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        // Cập nhật danh mục trong sidebar
+        updateCategoryList();
+        
+    } catch (error) {
+        console.error('Lỗi tải dữ liệu HKD:', error);
+        Utils.showToast('Lỗi tải dữ liệu', 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+
+// Thiết lập event listeners
+function setupHKDEventListeners() {
+    // Sidebar toggle
+    document.getElementById('menuToggle').addEventListener('click', toggleSidebar);
+    
+    // Category filter
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('category-filter')) {
+            filterProductsByCategory(e.target.dataset.category);
         }
     });
-
-    // Xử lý xác nhận
-    modal.querySelector('#quick-confirm-btn').addEventListener('click', () => {
-        this.processQuickCheckout(modal);
+    
+    // Product click
+    document.getElementById('productGrid').addEventListener('click', (e) => {
+        const productCard = e.target.closest('.product-card');
+        if (productCard) {
+            const productId = productCard.dataset.productId;
+            addToCart(productId);
+        }
     });
-
-    // Xử lý hủy
-    modal.querySelector('#quick-cancel-btn').addEventListener('click', () => {
-        modal.remove();
+    
+    // Cart actions
+    document.getElementById('clearCart').addEventListener('click', clearCart);
+    document.getElementById('createInvoice').addEventListener('click', createInvoice);
+    
+    // Invoice history
+    document.getElementById('viewHistory').addEventListener('click', showInvoiceHistory);
+    document.getElementById('viewRevenue').addEventListener('click', showRevenueReport);
+    
+    // Customer name input
+    document.getElementById('customerName').addEventListener('input', (e) => {
+        updateCartSummary();
+    });
+    
+    // Close sidebar khi click outside
+    document.addEventListener('click', (e) => {
+        const sidebar = document.getElementById('sidebar');
+        const menuToggle = document.getElementById('menuToggle');
+        
+        if (sidebar.classList.contains('active') &&
+            !sidebar.contains(e.target) &&
+            !menuToggle.contains(e.target)) {
+            toggleSidebar();
+        }
     });
 }
 
-    // Xử lý thanh toán
-    async processCheckout(modal) {
-        if (this.currentCart.items.length === 0) {
-            utils.showNotification('Giỏ hàng trống', 'warning');
+// Hiển thị thông tin HKD
+function displayHKDInfo() {
+    document.getElementById('hkdName').textContent = currentHKD.name;
+    document.getElementById('hkdNameMobile').textContent = currentHKD.name;
+}
+// Thêm vào hkd.js
+function updateSyncStatus() {
+    const syncStatusEl = document.getElementById('syncStatus');
+    if (!syncStatusEl) return;
+    
+    if (navigator.onLine) {
+        if (isSyncing) {
+            syncStatusEl.className = 'sync-status syncing';
+            syncStatusEl.innerHTML = '<i class="fas fa-sync fa-spin"></i> <span>Đang đồng bộ...</span>';
+        } else {
+            syncStatusEl.className = 'sync-status';
+            syncStatusEl.innerHTML = '<i class="fas fa-wifi"></i> <span>Đã kết nối</span>';
+        }
+    } else {
+        syncStatusEl.className = 'sync-status offline';
+        syncStatusEl.innerHTML = '<i class="fas fa-wifi-slash"></i> <span>Đang offline</span>';
+    }
+}
+
+// Cập nhật hàm syncFromFirebase
+async function syncFromFirebase() {
+    if (isSyncing) {
+        console.log('🔄 Đang sync, bỏ qua...');
+        return;
+    }
+    
+    isSyncing = true;
+    updateSyncStatus(); // Cập nhật trạng thái
+    
+    console.log('⬇️ Đồng bộ từ Firebase về IndexedDB...');
+    
+    try {
+        // ... phần còn lại của hàm syncFromFirebase ...
+        
+    } catch (error) {
+        console.error('❌ Lỗi đồng bộ từ Firebase:', error);
+    } finally {
+        isSyncing = false;
+        updateSyncStatus(); // Cập nhật trạng thái
+    }
+}
+// Sửa hàm initSidebar để thêm nút sync
+function initSidebar() {
+    // Thêm các menu item
+    const menuItems = [
+        { id: 'dashboard', icon: 'fa-home', text: 'Bán hàng', action: () => showDashboard() },
+        { id: 'history', icon: 'fa-history', text: 'Lịch sử', action: () => showInvoiceHistory() },
+        { id: 'revenue', icon: 'fa-chart-line', text: 'Doanh thu', action: () => showRevenueReport() },
+        { id: 'products', icon: 'fa-boxes', text: 'Sản phẩm', action: () => showAllProducts() },
+        { id: 'sync', icon: 'fa-sync-alt', text: 'Đồng bộ', action: () => forceSync() },
+        { id: 'logout', icon: 'fa-sign-out-alt', text: 'Đăng xuất', action: () => logout() }
+    ];
+    
+    const menuContainer = document.getElementById('sidebarMenu');
+    menuContainer.innerHTML = menuItems.map(item => `
+        <div class="menu-item" onclick="${item.action.toString().replace(/"/g, '&quot;')}">
+            <i class="fas ${item.icon}"></i>
+            <span>${item.text}</span>
+        </div>
+    `).join('');
+}
+// Hiển thị trang quản lý của HKD
+function showAllManagement() {
+    console.log('📋 Hiển thị trang quản lý HKD');
+    
+    // Tạo modal hoặc mở trang quản lý
+    const modal = new bootstrap.Modal(document.getElementById('hkdManagementModal'));
+    
+    // Load danh mục và sản phẩm vào modal
+    loadHKDManagementData();
+    
+    modal.show();
+}
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('active');
+    
+    // Toggle overlay
+    const overlay = document.getElementById('sidebarOverlay');
+    if (overlay) {
+        overlay.classList.toggle('active');
+    } else {
+        // Tạo overlay nếu chưa có
+        const newOverlay = document.createElement('div');
+        newOverlay.id = 'sidebarOverlay';
+        newOverlay.className = 'sidebar-overlay';
+        newOverlay.onclick = toggleSidebar;
+        document.body.appendChild(newOverlay);
+        setTimeout(() => newOverlay.classList.add('active'), 10);
+    }
+}
+
+function updateCategoryList() {
+    const categoryContainer = document.getElementById('categoryList');
+    if (!categoryContainer) return;
+    
+    // Tạo unique categories từ products theo cấu trúc mới
+    const uniqueCategoryIds = [...new Set(products
+        .map(p => p.categoryId)
+        .filter(Boolean))];
+    
+    // Lấy tên danh mục từ categories array
+    const productCategories = uniqueCategoryIds
+        .map(categoryId => {
+            const category = categories.find(c => c.id === categoryId);
+            return category ? category.name : null;
+        })
+        .filter(Boolean);
+    
+    // Kết hợp với danh sách categories từ database
+    const allCategories = ['Tất cả', ...new Set([
+        ...categories.map(c => c.name),
+        ...productCategories
+    ])];
+    
+    // Render category filters
+    categoryContainer.innerHTML = allCategories.map(cat => `
+        <button class="category-filter ${cat === 'Tất cả' ? 'active' : ''}" 
+                data-category="${cat}">
+            ${cat}
+        </button>
+    `).join('');
+}
+
+function displayProducts(category = 'Tất cả') {
+    const productGrid = document.getElementById('productGrid');
+    if (!productGrid) return;
+    
+    let filteredProducts = products;
+    
+    if (category !== 'Tất cả') {
+        console.log(`🔍 Filtering by category: "${category}"`);
+        
+        // FILTER THEO CẤU TRÚC MỚI: product có categoryId, tìm tên từ categories array
+        filteredProducts = products.filter(product => {
+            if (!product || !product.categoryId) return false;
+            
+            // Tìm tên danh mục từ categoryId
+            const productCategory = categories.find(c => 
+                c && c.id === product.categoryId
+            );
+            
+            // So sánh tên danh mục
+            return productCategory && productCategory.name === category;
+        });
+        
+        console.log(`📊 Found ${filteredProducts.length} products for category "${category}"`);
+    }
+    
+    // Hiển thị sản phẩm
+    if (filteredProducts.length === 0) {
+        productGrid.innerHTML = `
+            <div class="no-products">
+                <i class="fas fa-box-open"></i>
+                <p>Không có sản phẩm trong danh mục này</p>
+            </div>
+        `;
+        return;
+    }
+    
+    productGrid.innerHTML = filteredProducts.map(product => {
+        // Lấy tên danh mục để hiển thị
+        const categoryObj = categories.find(c => c.id === product.categoryId);
+        const categoryName = categoryObj ? categoryObj.name : '';
+        
+        return `
+            <div class="product-card" data-product-id="${product.id}">
+                <div class="product-info">
+                    <div class="product-name">${product.name}</div>
+                    <div class="product-details">
+                        <span class="product-price">${Utils.formatCurrency(product.price)}</span>
+                        <span class="product-unit">/${product.unit}</span>
+                    </div>
+                    ${product.stock !== undefined ? 
+                        `<div class="product-stock">Còn: ${product.stock}</div>` : 
+                        `<div class="product-stock">Không giới hạn</div>`
+                    }
+                    ${categoryName ? `<div class="product-category-badge">${categoryName}</div>` : ''}
+                </div>
+                <div class="product-cart">
+                    <span class="quantity-value">${getCartQuantity(product.id)}</span>
+                    <button class="btn-add-cart">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function editHKDProduct(productId) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    // Điền dữ liệu vào form
+    document.getElementById('hkdProductCode').value = product.msp || '';
+    document.getElementById('hkdProductName').value = product.name || '';
+    document.getElementById('hkdProductUnit').value = product.unit || 'cái';
+    document.getElementById('hkdProductPrice').value = product.price || 0;
+    document.getElementById('hkdProductStock').value = product.stock || 0;
+    document.getElementById('hkdProductDescription').value = product.description || '';
+    
+    // Load danh mục và chọn đúng
+    const categorySelect = document.getElementById('hkdProductCategory');
+    categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
+    
+    categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category.id;
+        option.textContent = category.name;
+        if (category.id === product.categoryId) {
+            option.selected = true;
+        }
+        categorySelect.appendChild(option);
+    });
+    
+    // Lưu ID sản phẩm đang sửa
+    document.getElementById('hkdProductModal').dataset.editId = productId;
+    document.querySelector('#hkdProductModal .modal-title').textContent = 'Sửa hàng hóa';
+    
+    const modal = new bootstrap.Modal(document.getElementById('hkdProductModal'));
+    modal.show();
+}
+async function deleteHKDProduct(productId) {
+    const confirmed = await Utils.confirm('Bạn có chắc muốn xóa sản phẩm này?');
+    if (!confirmed) return;
+    
+    Utils.showLoading('Đang xóa...');
+    
+    try {
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        
+        // 1. Xóa khỏi IndexedDB
+        await deleteFromStore(STORES.PRODUCTS, productId);
+        
+        // 2. Cập nhật UI ngay
+        products = products.filter(p => p.id !== productId);
+        displayProducts();
+        
+        Utils.showToast('Đã xóa sản phẩm', 'success');
+        
+        // 3. Sync xóa lên Firebase
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                const productRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${product.categoryId}/products/${productId}`
+                );
+                
+                // Soft delete
+                await productRef.update({
+                    _deleted: true,
+                    _deletedAt: new Date().toISOString(),
+                    lastUpdated: new Date().toISOString()
+                });
+                
+                console.log('✅ HKD đã xóa sản phẩm trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync delete:', firebaseError);
+                await addToSyncQueue({
+                    type: 'products_delete',
+                    data: {
+                        id: productId,
+                        hkdId: currentHKD.id,
+                        categoryId: product.categoryId
+                    }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi xóa sản phẩm:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+function getCategoryNameById(categoryId) {
+    if (!categoryId || !categories) return '';
+    const category = categories.find(c => c && c.id === categoryId);
+    return category ? category.name : '';
+}
+
+// Thêm hàm debug để xem dữ liệu
+function debugProductCategories() {
+    console.log('=== DEBUG PRODUCT CATEGORIES ===');
+    console.log(`📊 Total products: ${products.length}`);
+    console.log(`📊 Total categories: ${categories.length}`);
+    
+    products.forEach((product, index) => {
+        const categoryName = getCategoryNameById(product.categoryId);
+        console.log(`  Product ${index + 1}:`, {
+            name: product.name,
+            categoryId: product.categoryId,
+            categoryName: categoryName,
+            hasCategoryField: !!product.category,
+            categoryField: product.category
+        });
+    });
+    
+    categories.forEach((category, index) => {
+        console.log(`  Category ${index + 1}:`, {
+            id: category.id,
+            name: category.name,
+            hkdId: category.hkdId
+        });
+    });
+}
+
+// Thêm vào window để debug
+window.debugProductCategories = debugProductCategories;
+
+function filterProductsByCategory(category) {
+    // Update active button
+    document.querySelectorAll('.category-filter').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    const activeBtn = document.querySelector(`.category-filter[data-category="${category}"]`);
+    if (activeBtn) {
+        activeBtn.classList.add('active');
+    }
+    
+    // Display filtered products
+    displayProducts(category);
+}
+
+// Giỏ hàng
+function initCart() {
+    // Load cart from localStorage
+    const savedCart = localStorage.getItem(`cart_${currentHKD.id}`);
+    if (savedCart) {
+        cart = JSON.parse(savedCart);
+        updateCartDisplay();
+    }
+}
+
+function getCartQuantity(productId) {
+    const item = cart.find(item => item.productId === productId);
+    return item ? item.quantity : 0;
+}
+
+function addToCart(productId) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    const existingItem = cart.find(item => item.productId === productId);
+    
+    if (existingItem) {
+        // Kiểm tra tồn kho nếu có
+        if (product.stock && existingItem.quantity >= product.stock) {
+            Utils.showToast('Đã đạt giới hạn tồn kho', 'warning');
             return;
         }
+        existingItem.quantity += 1;
+    } else {
+        // Kiểm tra tồn kho
+        if (product.stock && product.stock <= 0) {
+            Utils.showToast('Sản phẩm đã hết hàng', 'warning');
+            return;
+        }
+        cart.push({
+            productId: productId,
+            quantity: 1,
+            price: product.price,
+            name: product.name,
+            unit: product.unit,
+            msp: product.msp,
+            category: product.category,
+            description: product.description,
+            note: product.note
+        });
+    }
+    
+    // Update UI
+    updateCartDisplay();
+    updateProductQuantity(productId);
+    
+    // Play sound
+    playAddToCartSound();
+    
+    // Save cart
+    saveCart();
+}
+
+function removeFromCart(productId) {
+    const existingItem = cart.find(item => item.productId === productId);
+    
+    if (existingItem) {
+        if (existingItem.quantity > 1) {
+            existingItem.quantity -= 1;
+        } else {
+            cart = cart.filter(item => item.productId !== productId);
+        }
+    }
+    
+    updateCartDisplay();
+    updateProductQuantity(productId);
+    saveCart();
+}
+
+function clearCart() {
+    const confirmed =  Utils.confirm('Bạn có chắc chắn muốn xóa giỏ hàng?');
+    if (!confirmed) return;
+    
+    cart = [];
+    updateCartDisplay();
+    
+    // Reset product quantities
+    document.querySelectorAll('.product-card').forEach(card => {
+        const productId = card.dataset.productId;
+        updateProductQuantity(productId);
+    });
+    
+    saveCart();
+    
+    Utils.showToast('Đã xóa giỏ hàng', 'success');
+}
+
+function updateProductQuantity(productId) {
+    const productCard = document.querySelector(`.product-card[data-product-id="${productId}"]`);
+    if (productCard) {
+        const quantityValue = productCard.querySelector('.quantity-value');
+        if (quantityValue) {
+            quantityValue.textContent = getCartQuantity(productId);
+        }
+    }
+}
+
+function updateCartDisplay() {
+    // Update cart count
+    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+    document.getElementById('cartCount').textContent = totalItems;
+    
+    // Update cart items
+    const cartItemsContainer = document.getElementById('cartItems');
+    if (cartItemsContainer) {
+        if (cart.length === 0) {
+            cartItemsContainer.innerHTML = `
+                <div class="empty-cart">
+                    <i class="fas fa-shopping-cart"></i>
+                    <p>Giỏ hàng trống</p>
+                </div>
+            `;
+        } else {
+            cartItemsContainer.innerHTML = cart.map(item => `
+                <div class="cart-item">
+                    <div class="cart-item-info">
+                        <div class="cart-item-name">${item.name}</div>
+                        <div class="cart-item-details">
+                            <span class="cart-item-price">${Utils.formatCurrency(item.price)}</span>
+                            <span class="cart-item-unit">/${item.unit}</span>
+                        </div>
+                    </div>
+                    <div class="cart-item-controls">
+                        <button class="btn-decrease" onclick="removeFromCart('${item.productId}')">
+                            <i class="fas fa-minus"></i>
+                        </button>
+                        <span class="cart-item-quantity">${item.quantity}</span>
+                        <button class="btn-increase" onclick="addToCart('${item.productId}')">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    <div class="cart-item-total">
+                        ${Utils.formatCurrency(item.price * item.quantity)}
+                    </div>
+                </div>
+            `).join('');
+        }
+    }
+    
+    // Update summary
+    updateCartSummary();
+}
+
+function updateCartSummary() {
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    
+    document.getElementById('cartSubtotal').textContent = Utils.formatCurrency(subtotal);
+    document.getElementById('cartTotal').textContent = Utils.formatCurrency(subtotal);
+}
+
+function saveCart() {
+    localStorage.setItem(`cart_${currentHKD.id}`, JSON.stringify(cart));
+}
+
+// Thay thế hàm playAddToCartSound
+function playAddToCartSound() {
+    try {
+        // Tạo âm thanh đơn giản bằng Web Audio API
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
         
-        const paymentMethod = modal.querySelector('#payment-method').value;
-        const customerName = modal.querySelector('#customer-name').value || 'Khách vãng lai';
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
         
-        modal.querySelector('#confirm-checkout-btn').disabled = true;
-        utils.showLoading('Đang tạo đơn hàng...');
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
         
-        // Tạo đối tượng saleData
-        const saleData = {
-            items: this.currentCart.items,
-            subtotal: this.currentCart.subtotal,
-            discount: this.currentCart.discount,
-            tax: this.currentCart.tax,
-            total: this.currentCart.total,
-            customer: customerName,
-            paymentMethod: paymentMethod,
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+        
+        // Cleanup
+        setTimeout(() => {
+            oscillator.disconnect();
+            gainNode.disconnect();
+        }, 200);
+    } catch (error) {
+        // Silent fail - không cần xử lý
+        console.log('Audio not supported or error:', error.message);
+    }
+}
+
+// Tạo hóa đơn - ĐÃ SỬA ĐỂ ĐỒNG BỘ 2 CHIỀU
+async function createInvoice() {
+    if (cart.length === 0) {
+        Utils.showToast('Giỏ hàng trống', 'warning');
+        return;
+    }
+    
+    const customerName = document.getElementById('customerName').value.trim() || 'Khách lẻ';
+    
+    const confirmed = await Utils.confirm(
+        `Xác nhận tạo hóa đơn cho ${customerName}?\nTổng tiền: ${Utils.formatCurrency(calculateCartTotal())}`
+    );
+    
+    if (!confirmed) return;
+    
+    Utils.showLoading('Đang tạo hóa đơn...');
+    
+    try {
+        const invoiceId = Utils.generateId();
+        
+        // Tạo items array với cấu trúc CHUẨN - FIX LỖI UNDEFINED
+        const invoiceItems = cart.map(item => {
+            // Tìm thông tin đầy đủ của sản phẩm từ products array
+            const productInfo = products.find(p => p.id === item.productId);
+            
+            // Tạo item với cấu trúc chuẩn, đảm bảo không có undefined
+            const invoiceItem = {
+                productId: item.productId || '',
+                name: item.name || productInfo?.name || 'Sản phẩm không xác định',
+                unit: item.unit || productInfo?.unit || 'cái',
+                quantity: item.quantity || 0,
+                price: item.price || productInfo?.price || 0,
+                msp: item.msp || productInfo?.msp || '',
+                
+                // QUAN TRỌNG: Lấy category từ productInfo nếu cart item không có
+                // Ưu tiên 1: Từ cart item (nếu có và không undefined)
+                // Ưu tiên 2: Từ productInfo.category (nếu có)
+                // Ưu tiên 3: Từ categoryId + categories array
+                // Ưu tiên 4: Chuỗi rỗng
+                category: (item.category !== undefined && item.category !== null) 
+                    ? item.category 
+                    : productInfo?.category || getCategoryNameById(productInfo?.categoryId) || '',
+                
+                description: item.description || productInfo?.description || '',
+                note: item.note || productInfo?.note || ''
+            };
+            
+            console.log('📦 Invoice item created:', {
+                name: invoiceItem.name,
+                category: invoiceItem.category,
+                fromCartCategory: item.category,
+                fromProductCategory: productInfo?.category,
+                categoryId: productInfo?.categoryId,
+                categoryName: getCategoryNameById(productInfo?.categoryId)
+            });
+            
+            return invoiceItem;
+        });
+        
+        // Tạo invoice data
+        const invoiceData = {
+            id: invoiceId,
+            hkdId: currentHKD.id,
+            hkdName: currentHKD.name,
+            customerName: customerName,
+            date: new Date().toISOString(),
+            items: invoiceItems, // Sử dụng items đã được chuẩn hóa
+            subtotal: calculateCartTotal(),
+            tax: 0,
+            discount: 0,
+            total: calculateCartTotal(),
+            status: 'completed',
+            _synced: false,
+            lastUpdated: new Date().toISOString(),
             timestamp: Date.now()
         };
         
-        try {
-            const result = await dbManager.createSale(this.hkdId, saleData);
-            
-            if (result.success) {
-                utils.showNotification('✅ Thanh toán thành công!', 'success');
-                this.showInvoiceModal(result.data.saleId, saleData);
-                this.currentCart = this.createNewCart(); // Reset giỏ hàng
-                this.saveCart(); // Cập nhật localStorage và UI
-            } else {
-                // Xử lý khi offline hoặc lỗi stock
-                if (result.error.includes('Offline mode')) {
-                    utils.showNotification('⚠️ Mất kết nối. Đã lưu đơn hàng offline.', 'warning', 6000);
-                    // Không reset cart, để người dùng thử sync lại sau
-                    this.showInvoiceModal(result.saleId, saleData, true);
-                    this.currentCart = this.createNewCart(); // Reset giỏ hàng
-                    this.saveCart(); // Cập nhật localStorage và UI
-                } else if (result.error.includes('Sản phẩm tạm thời')) {
-                     utils.showNotification(`Lỗi: ${result.error}`, 'error', 6000);
-                } else {
-                    utils.showNotification(`Lỗi thanh toán: ${result.error}`, 'error', 6000);
-                }
-            }
-        } catch (error) {
-            console.error('Checkout error:', error);
-            utils.showNotification('Lỗi hệ thống khi thanh toán.', 'error', 6000);
-        } finally {
-            utils.hideLoading();
-            // Đóng modal xác nhận
-            // Sử dụng setTimeout để đảm bảo modal đóng sau khi notification đã hiển thị
-            setTimeout(() => {
-                const closeModalBtn = modal.querySelector('.hkd-modal-close');
-                if (closeModalBtn) closeModalBtn.click();
-            }, 100); 
-            this.loadProducts(); // Reload products to update stock/grid
-        }
-    }
-    
-    // Hiển thị modal hóa đơn
-    showInvoiceModal(saleId, saleData, isOffline = false) {
-        const totalItems = saleData.items.reduce((sum, item) => sum + item.quantity, 0);
+        console.log('📝 Tạo invoice:', invoiceId);
+        console.log('📊 Invoice items check (no undefined):', 
+            invoiceData.items.every(item => item.category !== undefined)
+        );
         
-        const invoiceContent = `
-            <div class="invoice-details">
-                <p><strong>Cửa hàng:</strong> ${this.hkdInfo?.name || 'HKD'}</p>
-                <p><strong>Ngày:</strong> ${utils.formatDate(saleData.timestamp)}</p>
-                <p><strong>ID giao dịch:</strong> ${saleId}</p>
-                ${isOffline ? '<p style="color: red; font-weight: bold;">LƯU Ý: Giao dịch OFFLINE - Cần đồng bộ</p>' : ''}
-            </div>
-            
-            <h4 style="margin-top: 20px;">Chi tiết hóa đơn:</h4>
-            <div class="invoice-items" style="border-top: 1px dashed #ccc; border-bottom: 1px dashed #ccc; padding: 10px 0;">
-                ${saleData.items.map(item => `
-                    <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 5px;">
-                        <span>${item.name} x${item.quantity}</span>
-                        <span>${utils.formatCurrency(item.total)}</span>
-                    </div>
-                `).join('')}
-            </div>
-            
-            <div class="invoice-summary" style="margin-top: 15px;">
-                <p>Tổng sản phẩm: <strong>${totalItems}</strong></p>
-                <p>Tạm tính: <strong>${utils.formatCurrency(saleData.subtotal)}</strong></p>
-                <p>Giảm giá: <strong>-${utils.formatCurrency(saleData.discount)}</strong></p>
-                <p>Thuế (${this.hkdInfo?.settings?.taxRate || 0}%): <strong>+${utils.formatCurrency(saleData.tax)}</strong></p>
-                <p style="font-size: 1.2rem; font-weight: bold; color: #007bff; border-top: 1px solid #ccc; padding-top: 10px;">
-                    TỔNG CỘNG: ${utils.formatCurrency(saleData.total)}
-                </p>
-                <p>Thanh toán: <strong>${saleData.paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}</strong></p>
-                <p>Khách hàng: <strong>${saleData.customer}</strong></p>
-            </div>
-        `;
-
-        // Tạo modal
-        const modal = document.createElement('div');
-        modal.className = 'hkd-modal show';
-        modal.innerHTML = `
-            <div class="hkd-modal-content">
-                <div class="hkd-modal-header">
-                    <h3>Hóa đơn bán hàng</h3>
-                    <button class="hkd-modal-close">&times;</button>
-                </div>
-                <div class="hkd-modal-body">
-                    ${invoiceContent}
-                </div>
-                <div class="hkd-modal-footer">
-                    <button class="hkd-btn hkd-btn-secondary" id="print-invoice-btn">In hóa đơn</button>
-                    <button class="hkd-btn hkd-btn-primary modal-confirm">Đóng</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-
-        // Xử lý in hóa đơn
-        modal.querySelector('#print-invoice-btn').addEventListener('click', () => {
-            this.printInvoice(saleData, saleId);
-        });
-
-        // Xử lý đóng modal
-        const closeModal = () => {
-            modal.classList.remove('show');
-            setTimeout(() => modal.remove(), 300);
-        };
-        modal.querySelector('.hkd-modal-close').addEventListener('click', closeModal);
-        modal.querySelector('.modal-confirm').addEventListener('click', closeModal);
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeModal();
-        });
-    }
-
-    // In hóa đơn
-    printInvoice(saleData, saleId) {
-        const printWindow = window.open('', '_blank');
-        const totalItems = saleData.items.reduce((sum, item) => sum + item.quantity, 0);
-        const storeName = this.hkdInfo?.name || 'HKD Bán Hàng';
-        const storeAddress = this.hkdInfo?.address || 'Địa chỉ: N/A';
-
-        const content = `
-            <html>
-            <head>
-                <title>Hóa đơn ${saleId}</title>
-                <style>
-                    body { font-family: 'Arial', sans-serif; font-size: 12px; margin: 0; padding: 20px; }
-                    .invoice { max-width: 300px; margin: 0 auto; border: 1px solid #ccc; padding: 15px; }
-                    .header { text-align: center; margin-bottom: 15px; }
-                    .header h1 { font-size: 16px; margin: 0; }
-                    .header p { font-size: 10px; margin: 3px 0; }
-                    .details, .summary { margin-bottom: 10px; border-top: 1px dashed #ccc; padding-top: 10px; }
-                    .item { display: flex; justify-content: space-between; margin-bottom: 3px; }
-                    .item-name { flex-grow: 1; }
-                    .item-qty { width: 40px; text-align: right; }
-                    .item-price { width: 70px; text-align: right; }
-                    .total { font-size: 14px; font-weight: bold; border-top: 1px solid #000; padding-top: 5px; margin-top: 10px; text-align: right; }
-                    .thank-you { text-align: center; margin-top: 20px; font-style: italic; font-size: 10px; }
-                </style>
-            </head>
-            <body>
-                <div class="invoice">
-                    <div class="header">
-                        <h1>${storeName}</h1>
-                        <p>${storeAddress}</p>
-                        <p>Tel: ${this.hkdInfo?.phone || 'N/A'}</p>
-                        <p>Ngày: ${utils.formatDate(saleData.timestamp)}</p>
-                        <p>Mã HĐ: ${saleId}</p>
-                    </div>
-                    
-                    <div class="details">
-                        <div class="item">
-                            <span class="item-name"><strong>Sản phẩm</strong></span>
-                            <span class="item-qty"><strong>SL</strong></span>
-                            <span class="item-price"><strong>Thành tiền</strong></span>
-                        </div>
-                        ${saleData.items.map(item => `
-                            <div class="item">
-                                <span class="item-name">${item.name}</span>
-                                <span class="item-qty">${item.quantity}</span>
-                                <span class="item-price">${utils.formatCurrency(item.total)}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                    
-                    <div class="summary">
-                        <p>Tạm tính: <strong>${utils.formatCurrency(saleData.subtotal)}</strong></p>
-                        <p>Giảm giá: <strong>-${utils.formatCurrency(saleData.discount)}</strong></p>
-                        <p>Thuế: <strong>+${utils.formatCurrency(saleData.tax)}</strong></p>
-                        <p class="total">TỔNG CỘNG: ${utils.formatCurrency(saleData.total)}</p>
-                        <p style="text-align: right; margin-top: 5px;">Thanh toán: ${saleData.paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}</p>
-                    </div>
-                    
-                    <div class="thank-you">
-                        <p>Xin cảm ơn và hẹn gặp lại!</p>
-                    </div>
-                </div>
-                
-                <script>\n
-                    window.onload = function() {\n
-                        window.print();\n
-                        window.close();\n
-                    }\n
-                </script>
-            </body>
-            </html>
-        `;
-
-        printWindow.document.write(content);
-        printWindow.document.close();
-    }
-    
-    async showSalesHistoryModal() {
-    console.log('Attempting to show sales history modal...');
-    console.log('Current HKD ID:', this.hkdId);
-    
-    utils.showLoading('Đang tải lịch sử bán hàng...');
-    
-    let result;
-    try {
-        // Debug: Kiểm tra dbManager
-        console.log('dbManager available:', !!window.dbManager);
-        console.log('getSalesHistory function:', typeof window.dbManager?.getSalesHistory);
+        // 1. Lưu vào IndexedDB (invoices store)
+        await saveInvoice(invoiceData);
+        console.log('💾 Đã lưu invoice vào IndexedDB');
         
-        // Tải dữ liệu từ database
-        result = await dbManager.getSalesHistory(this.hkdId);
+        // 2. Thêm vào sync queue để đồng bộ lên Firebase
+        let syncAdded = false;
         
-        console.log('Sales history result:', result);
-        
-    } catch (error) {
-        console.error('Error fetching sales history:', error);
-        result = { 
-            success: false, 
-            error: 'Lỗi hệ thống khi tải dữ liệu: ' + error.message 
-        };
-    }
-    
-    utils.hideLoading();
-
-    let content = '';
-    if (!result.success) {
-         content = `<div class="empty-products" style="padding: 20px;">
-            <div style="font-size: 48px; margin-bottom: 20px; opacity: 0.5;">⚠️</div>
-            <p>Lỗi tải lịch sử: ${result.error || 'Không rõ'}</p>
-            <p style="font-size: 0.8rem; color: #666; margin-top: 10px;">HKD ID: ${this.hkdId}</p>
-        </div>`;
-    } else if (!result.data || result.data.length === 0) {
-        content = `<div class="empty-products" style="padding: 20px;">
-            <div style="font-size: 48px; margin-bottom: 20px; opacity: 0.5;">📋</div>
-            <p>Chưa có đơn hàng nào</p>
-            <p style="font-size: 0.8rem; color: #666; margin-top: 10px;">Hãy tạo đơn hàng đầu tiên!</p>
-        </div>`;
-    } else {
-        const sales = result.data.slice(0, 50); // Giới hạn 50 đơn gần nhất
-        console.log(`Displaying ${sales.length} sales`);
-        
-         content = `
-            <div style="max-height: 400px; overflow-y: auto;">
-                <div style="display: grid; gap: 10px;">
-                    ${sales.map(sale => {
-                        const itemsCount = sale.items?.length || 0;
-                        const formattedTime = sale.timestamp ? utils.formatDateTime(sale.timestamp) : 'N/A';
-                        const customerName = sale.customer || 'Khách vãng lai';
-                        const totalAmount = sale.total ? utils.formatCurrency(sale.total) : '0 đ';
-                        
-                        return `
-                        <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; border-left: 4px solid #28a745; position: relative;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; align-items: flex-start;">
-                                <div>
-                                    <strong style="color: #333; font-size: 0.95rem;">${formattedTime}</strong>
-                                    <div style="color: #6c757d; font-size: 0.85rem; margin-top: 3px;">
-                                        ${customerName} • ${sale.paymentMethod === 'cash' ? '💵 Tiền mặt' : '🏦 Chuyển khoản'}
-                                    </div>
-                                </div>
-                                <div style="text-align: right;">
-                                    <div style="color: #28a745; font-weight: 600; font-size: 1.1rem;">${totalAmount}</div>
-                                    <button class="view-invoice-btn" data-sale-id="${sale.id}" style="margin-top: 5px; padding: 4px 10px; background: #007bff; color: white; border: none; border-radius: 4px; font-size: 0.8rem; cursor: pointer;">
-                                        <i class="fas fa-eye"></i> Xem hóa đơn
-                                    </button>
-                                </div>
-                            </div>
-                            <div style="color: #6c757d; font-size: 0.85rem;">
-                                <span>Số sản phẩm: ${itemsCount}</span>
-                                ${sale.id ? `<span style="margin-left: 10px;">Mã: ${sale.id.substring(0, 8)}...</span>` : ''}
-                            </div>
-                        </div>
-                        `;
-                    }).join('')}
-                </div>
-            </div>
-        `;
-    }
-    
-    // Tạo modal
-    try {
-        const modal = document.createElement('div');
-        modal.className = 'hkd-modal show';
-        modal.innerHTML = `
-            <div class="hkd-modal-content" style="max-width: 600px;">
-                <div class="hkd-modal-header">
-                    <h3>Lịch sử bán hàng</h3>
-                    <button class="hkd-modal-close">&times;</button>
-                </div>
-                <div class="hkd-modal-body">
-                    ${content}
-                </div>
-                <div class="hkd-modal-footer">
-                    <button class="hkd-btn hkd-btn-primary modal-confirm">Đóng</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-
-        // Thêm event listener cho nút xem hóa đơn
-        setTimeout(() => {
-            modal.querySelectorAll('.view-invoice-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const saleId = e.target.closest('button').dataset.saleId;
-                    await this.viewInvoiceDetail(saleId);
-                });
+        // Kiểm tra các cách gọi hàm addToSyncQueue
+        if (typeof window.addToSyncQueue === 'function') {
+            await window.addToSyncQueue({
+                type: 'invoices',
+                data: invoiceData
             });
-        }, 100);
-
-        // Xử lý đóng modal
-        const closeModal = () => {
-            modal.classList.remove('show');
-            setTimeout(() => modal.remove(), 300);
-        };
-        modal.querySelector('.hkd-modal-close').addEventListener('click', closeModal);
-        modal.querySelector('.modal-confirm').addEventListener('click', closeModal);
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeModal();
-        });
-    } catch (domError) {
-        console.error('Error creating sales history modal:', domError);
-        utils.showNotification('Lỗi hiển thị lịch sử bán hàng', 'error');
-    }
-}
-
-// Thêm hàm viewInvoiceDetail()
-async viewInvoiceDetail(saleId) {
-    try {
-        utils.showLoading('Đang tải chi tiết hóa đơn...');
-        
-        // Lấy thông tin hóa đơn từ database
-        const snapshot = await database.ref(`hkds/${this.hkdId}/sales/${saleId}`).once('value');
-        const invoiceData = snapshot.val();
-        
-        if (!invoiceData) {
-            utils.showNotification('Không tìm thấy hóa đơn', 'error');
-            return;
+            syncAdded = true;
+            console.log('✅ Đã thêm vào sync queue (via window)');
         }
-        
-        // Hiển thị modal chi tiết
-        this.showInvoiceModal(saleId, invoiceData, false, true);
-        
-    } catch (error) {
-        console.error('Error viewing invoice:', error);
-        utils.showNotification('Lỗi tải chi tiết hóa đơn', 'error');
-    } finally {
-        utils.hideLoading();
-    }
-}
-
-    // hkd.js - Sửa hàm showAddProductModal
-showAddProductModal() {
-    // Đảm bảo categories đã được load
-    if (this.categories.length === 0) {
-        this.categories = ['Khác'];
-    }
-    
-    // Filter out "Tất cả" từ danh sách danh mục
-    const categoryOptions = this.categories
-        .filter(cat => cat !== 'Tất cả' && cat !== 'all')
-        .map(cat => `<option value="${cat}">${cat}</option>`)
-        .join('');
-    
-    const modalContent = `
-        <form id="add-product-form">
-            <div style="display: grid; gap: 15px;">
-                <div>
-                    <label style="display: block; margin-bottom: 8px; font-weight: 500;">Tên sản phẩm *</label>
-                    <input type="text" id="new-product-name" required 
-                           style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                    <div>
-                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Giá bán *</label>
-                        <input type="number" id="new-product-price" required min="1000" step="1000" 
-                               style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-                    </div>
-                    <div>
-                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Giá vốn</label>
-                        <input type="number" id="new-product-cost" min="0" step="1000" 
-                               style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-                    </div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                    <div>
-                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Tồn kho *</label>
-                        <input type="number" id="new-product-stock" value="1" min="0" required 
-                               style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-                    </div>
-                    <div>
-                        <label style="display: block; margin-bottom: 8px; font-weight: 500;">Đơn vị tính</label>
-                        <input type="text" id="new-product-unit" value="cái" 
-                               style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-                    </div>
-                </div>
-                <div>
-                    <label style="display: block; margin-bottom: 8px; font-weight: 500;">Danh mục</label>
-                    <div style="display: flex; gap: 10px;">
-                        <select id="new-product-category" 
-                                style="flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-                            ${categoryOptions}
-                            <option value="_new">Thêm danh mục mới...</option>
-                        </select>
-                        <button type="button" id="refresh-categories-btn" 
-                                style="padding: 12px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;"
-                                title="Làm mới danh sách danh mục">
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
-                    </div>
-                </div>
-                <div id="new-category-field" style="display: none; margin-top: 10px;">
-                    <label style="display: block; margin-bottom: 8px; font-weight: 500;">Tên danh mục mới *</label>
-                    <input type="text" id="new-category-input" placeholder="Nhập tên danh mục" 
-                           style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;">
-                </div>
-            </div>
-        </form>
-    `;
-
-    // Tạo modal
-    const modal = document.createElement('div');
-    modal.className = 'hkd-modal show';
-    modal.innerHTML = `
-        <div class="hkd-modal-content">
-            <div class="hkd-modal-header">
-                <h3>Thêm sản phẩm mới</h3>
-                <button class="hkd-modal-close">&times;</button>
-            </div>
-            <div class="hkd-modal-body">
-                ${modalContent}
-            </div>
-            <div class="hkd-modal-footer">
-                <button class="hkd-btn hkd-btn-secondary modal-cancel">Hủy</button>
-                <button type="submit" form="add-product-form" class="hkd-btn hkd-btn-primary" id="save-new-product-btn">Lưu sản phẩm</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-
-    // Logic ẩn/hiện trường danh mục mới
-    const categorySelect = modal.querySelector('#new-product-category');
-    const newCategoryField = modal.querySelector('#new-category-field');
-
-    categorySelect.addEventListener('change', (e) => {
-        if (e.target.value === '_new') {
-            newCategoryField.style.display = 'block';
-        } else {
-            newCategoryField.style.display = 'none';
+        else if (typeof addToSyncQueue === 'function') {
+            await addToSyncQueue({
+                type: 'invoices',
+                data: invoiceData
+            });
+            syncAdded = true;
+            console.log('✅ Đã thêm vào sync queue (via local)');
         }
-    });
-    
-    // Nút refresh categories
-    modal.querySelector('#refresh-categories-btn').addEventListener('click', async () => {
-        try {
-            utils.showLoading('Đang làm mới danh mục...');
-            await this.loadCategories();
+        else {
+            console.log('⚠️ Hàm addToSyncQueue không tồn tại, thử cách khác');
             
-            // Update select options
-            const newCategoryOptions = this.categories
-                .filter(cat => cat !== 'Tất cả' && cat !== 'all')
-                .map(cat => `<option value="${cat}">${cat}</option>`)
-                .join('');
-            
-            categorySelect.innerHTML = newCategoryOptions + '<option value="_new">Thêm danh mục mới...</option>';
-            
-            utils.showNotification('Đã làm mới danh sách danh mục', 'success');
-        } catch (error) {
-            console.error('Error refreshing categories:', error);
-            utils.showNotification('Lỗi làm mới danh mục', 'error');
-        } finally {
-            utils.hideLoading();
-        }
-    });
-
-    // Xử lý submit form
-    modal.querySelector('#add-product-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        this.saveNewProduct(modal);
-    });
-
-    // Xử lý đóng modal
-    const closeModal = () => {
-        modal.classList.remove('show');
-        setTimeout(() => modal.remove(), 300);
-    };
-    modal.querySelector('.hkd-modal-close').addEventListener('click', closeModal);
-    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) closeModal();
-    });
-}
-
-    // Lưu sản phẩm mới
-    async saveNewProduct(modal) {
-        const name = document.getElementById('new-product-name').value.trim();
-        const price = parseFloat(document.getElementById('new-product-price').value);
-        const cost = parseFloat(document.getElementById('new-product-cost').value) || 0;
-        const stock = parseInt(document.getElementById('new-product-stock').value) || 0;
-        const unit = document.getElementById('new-product-unit').value || 'cái';
-        let category = document.getElementById('new-product-category').value;
-        
-        if (category === '_new') {
-            category = document.getElementById('new-category-input').value.trim() || 'Khác';
-            // Thêm danh mục mới vào danh sách
-            if (category && !this.categories.includes(category)) {
-                this.categories.push(category);
-                this.renderCategories();
+            // Thử lưu trực tiếp vào syncQueue
+            try {
+                const db = await getDB();
+                const tx = db.transaction([STORES.SYNC_QUEUE], 'readwrite');
+                const store = tx.objectStore(STORES.SYNC_QUEUE);
+                
+                const syncItem = {
+                    type: 'invoices',
+                    data: invoiceData,
+                    status: 'pending',
+                    timestamp: new Date().toISOString(),
+                    createdAt: new Date().toISOString()
+                };
+                
+                await store.add(syncItem);
+                syncAdded = true;
+                console.log('✅ Đã lưu trực tiếp vào syncQueue');
+            } catch (syncError) {
+                console.error('❌ Lỗi lưu sync queue:', syncError);
             }
         }
         
-        if (!name || isNaN(price) || price <= 0) {
-            utils.showNotification('Vui lòng nhập tên và giá hợp lệ', 'error');
-            return;
+        if (!syncAdded) {
+            // Nếu không thể lưu sync queue, thử lưu trực tiếp lên Firebase
+            console.log('🔄 Thử lưu trực tiếp lên Firebase...');
+            await saveInvoiceDirectToFirebase(invoiceData);
         }
-
-        utils.showLoading('Đang lưu sản phẩm...');
         
-        const newProduct = {
-            name,
-            price,
-            cost,
-            stock,
-            unit,
-            category,
-            // SỬ DỤNG ID TẠM THỜI CHO SẢN PHẨM MỚI ĐƯỢC TẠO OFFLINE
-            id: utils.generateUniqueId('temp'), 
-            createdAt: Date.now()
+        // 3. Cập nhật lịch sử local
+        invoiceHistory.unshift(invoiceData);
+        
+        // 4. Giảm số lượng tồn kho (nếu có)
+        await updateProductStockAfterSale();
+        
+        // 5. Clear cart
+        cart = [];
+        updateCartDisplay();
+        saveCart();
+        
+        // 6. Reset customer name
+        document.getElementById('customerName').value = '';
+        
+        // 7. Reset product quantities
+        products.forEach(product => {
+            updateProductQuantity(product.id);
+        });
+        
+        // 8. Show success
+        Utils.showToast('Đã tạo hóa đơn thành công', 'success');
+        
+        // 9. Show invoice details
+        showInvoiceReceipt(invoiceData);
+        
+        // 10. Cố gắng đồng bộ ngay nếu online
+        if (navigator.onLine && syncAdded) {
+            console.log('🌐 Đang online, thử đồng bộ ngay...');
+            
+            setTimeout(async () => {
+                try {
+                    // Kiểm tra sync queue
+                    const pendingItems = await getPendingSyncItems();
+                    console.log(`📊 Sync queue có ${pendingItems.length} item pending`);
+                    
+                    // Thực hiện sync
+                    if (typeof window.syncToFirebase === 'function') {
+                        await window.syncToFirebase();
+                    } else if (typeof syncToFirebase === 'function') {
+                        await syncToFirebase();
+                    }
+                    
+                    console.log('✅ Đã thực hiện sync lên Firebase');
+                } catch (syncError) {
+                    console.error('❌ Lỗi khi sync:', syncError);
+                }
+            }, 1000);
+        }
+        
+    } catch (error) {
+        console.error('❌ Lỗi tạo hóa đơn:', error);
+        Utils.showToast('Lỗi khi tạo hóa đơn: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+
+// Hàm lưu trực tiếp lên Firebase (fallback)
+async function saveInvoiceDirectToFirebase(invoiceData) {
+    try {
+        await initFirebase();
+        
+        const invoiceRef = firebase.database().ref(`hkds/${currentHKD.id}/invoices/${invoiceData.id}`);
+        
+        const firebaseData = {
+            ...invoiceData,
+            lastUpdated: new Date().toISOString(),
+            _syncedAt: new Date().toISOString()
         };
         
-        // Cập nhật local products
-        this.products[newProduct.id] = newProduct;
-
-        // Lưu sản phẩm lên Firebase (qua dbManager.importProducts, sẽ push toàn bộ local products lên)
-        const productsArray = Object.values(this.products);
-        const result = await dbManager.importProducts(this.hkdId, productsArray);
-
-        utils.hideLoading();
+        await invoiceRef.set(firebaseData);
+        console.log('✅ Đã lưu trực tiếp lên Firebase');
         
-        if (result.success) {
-            utils.showNotification('Đã đồng bộ sản phẩm lên Firebase', 'success');
-            // Cập nhật lại danh sách local products từ firebase (để lấy ID thật)
-            await this.loadProducts(); 
-            this.renderProducts('all');
-            modal.querySelector('.hkd-modal-close').click();
-        } else {
-            // Nếu lỗi, vẫn giữ trong local cache và chờ sync
-             utils.showNotification('Đã thêm sản phẩm (chờ đồng bộ)', 'success');
-             this.renderProducts('all');
-             modal.querySelector('.hkd-modal-close').click();
-        }
-    }
-    
-    // ==================== SETUP ====================
-    
-    // Thiết lập event listeners
-    // hkd.js - Cập nhật setupEventListeners()
-setupEventListeners() {
-    // Checkout button
-    const checkoutBtn = document.getElementById('checkout-btn');
-    if (checkoutBtn) {
-        checkoutBtn.addEventListener('click', () => {
-            this.checkout();
-        });
-    }
-    
-    // Clear Cart button
-    const clearCartBtn = document.getElementById('clear-cart-btn');
-    if (clearCartBtn) {
-        clearCartBtn.addEventListener('click', () => {
-            this.clearCart();
-        });
-    }
-
-    // FAB buttons
-    const historyFab = document.getElementById('history-fab');
-    if (historyFab) {
-        historyFab.addEventListener('click', () => {
-            this.showSalesHistoryModal();
-        });
-    }
-    
-    // Revenue FAB button
-    const revenueFab = document.getElementById('revenue-fab');
-    if (revenueFab) {
-        revenueFab.addEventListener('click', () => {
-            this.showRevenueStats();
-        });
-    }
-    
-    const addProductFab = document.getElementById('add-product-fab');
-    if (addProductFab) {
-        addProductFab.addEventListener('click', () => {
-            this.showAddProductModal();
-        });
-    }
-    
-    // Auto-save cart
-    window.addEventListener('beforeunload', () => {
-        this.saveCart();
-    });
-    
-    // Auto-refresh when online
-    window.addEventListener('online', async () => {
-        await this.loadData();
-    });
-}
-
-// Thêm hàm showRevenueStats()
-async showRevenueStats() {
-    try {
-        utils.showLoading('Đang tải thống kê doanh thu...');
-        
-        const result = await dbManager.getRevenueStats(this.hkdId, 30);
-        
-        if (result.success) {
-            this.showRevenueModal(result.data);
-        } else {
-            utils.showNotification('Lỗi tải thống kê: ' + result.error, 'error');
-        }
     } catch (error) {
-        console.error('Error loading revenue stats:', error);
-        utils.showNotification('Lỗi hệ thống khi tải thống kê', 'error');
-    } finally {
-        utils.hideLoading();
+        console.error('❌ Lỗi lưu trực tiếp lên Firebase:', error);
+        throw error;
     }
 }
 
-showRevenueModal(stats) {
-    const modalContent = `
-        <div style="text-align: center; padding: 20px 0;">
-            <h3 style="margin-bottom: 20px; color: #333;">Thống kê doanh thu 30 ngày</h3>
+// Cập nhật tồn kho sau khi bán
+async function updateProductStockAfterSale() {
+    try {
+        for (const cartItem of cart) {
+            const product = products.find(p => p.id === cartItem.productId);
             
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px;">
-                <div style="background: #e3f2fd; padding: 20px; border-radius: 10px;">
-                    <div style="font-size: 2rem; font-weight: bold; color: #1565c0; margin-bottom: 5px;">
-                        ${utils.formatCurrency(stats.totalRevenue)}
-                    </div>
-                    <div style="color: #0d47a1; font-size: 0.9rem;">Tổng doanh thu</div>
-                </div>
+            if (product && product.stock !== undefined) {
+                // Giảm số lượng tồn
+                product.stock = Math.max(0, product.stock - cartItem.quantity);
+                product.lastUpdated = new Date().toISOString();
                 
-                <div style="background: #e8f5e9; padding: 20px; border-radius: 10px;">
-                    <div style="font-size: 2rem; font-weight: bold; color: #2e7d32; margin-bottom: 5px;">
-                        ${stats.totalOrders}
-                    </div>
-                    <div style="color: #1b5e20; font-size: 0.9rem;">Tổng đơn hàng</div>
-                </div>
+                // Cập nhật trong IndexedDB
+                await saveProduct(product);
                 
-                <div style="background: #fff3e0; padding: 20px; border-radius: 10px;">
-                    <div style="font-size: 2rem; font-weight: bold; color: #ef6c00; margin-bottom: 5px;">
-                        ${utils.formatCurrency(stats.averageOrderValue)}
-                    </div>
-                    <div style="color: #e65100; font-size: 0.9rem;">Đơn hàng trung bình</div>
-                </div>
+                // Thêm vào sync queue
+                if (typeof window.addToSyncQueue === 'function') {
+                    await window.addToSyncQueue({
+                        type: 'products',
+                        data: product
+                    });
+                }
                 
-                <div style="background: #fce4ec; padding: 20px; border-radius: 10px;">
-                    <div style="font-size: 2rem; font-weight: bold; color: #c2185b; margin-bottom: 5px;">
-                        ${Object.keys(stats.dailyStats || {}).length}
-                    </div>
-                    <div style="color: #880e4f; font-size: 0.9rem;">Ngày có doanh thu</div>
-                </div>
+                console.log(`📦 Đã cập nhật tồn kho ${product.name}: -${cartItem.quantity}`);
+            }
+        }
+        
+        // Cập nhật lại danh sách sản phẩm
+        products = await getProductsByHKD(currentHKD.id);
+        
+    } catch (error) {
+        console.error('❌ Lỗi cập nhật tồn kho:', error);
+    }
+}
+
+function calculateCartTotal() {
+    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+}
+
+function showInvoiceReceipt(invoice) {
+    const modal = new bootstrap.Modal(document.getElementById('invoiceReceiptModal'));
+    
+    // Format receipt
+    const receiptHtml = `
+        <div class="receipt-header">
+            <h4>HÓA ĐƠN BÁN HÀNG</h4>
+            <div class="receipt-id">Mã: ${invoice.id.substring(0, 8)}</div>
+        </div>
+        
+        <div class="receipt-info">
+            <div class="receipt-row">
+                <span>HKD:</span>
+                <span>${invoice.hkdName}</span>
             </div>
-            
-            <div style="text-align: left; margin-top: 20px;">
-                <h4 style="color: #555; margin-bottom: 10px;">Doanh thu theo tháng:</h4>
-                <div style="max-height: 200px; overflow-y: auto;">
-                    ${Object.entries(stats.monthlyStats || {}).map(([month, amount]) => `
-                        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee;">
-                            <span>${month}</span>
-                            <span style="font-weight: 600; color: #28a745;">${utils.formatCurrency(amount)}</span>
-                        </div>
+            <div class="receipt-row">
+                <span>Khách hàng:</span>
+                <span>${invoice.customerName}</span>
+            </div>
+            <div class="receipt-row">
+                <span>Ngày:</span>
+                <span>${Utils.formatDate(invoice.date)}</span>
+            </div>
+        </div>
+        
+        <div class="receipt-items">
+            <h5>Chi tiết sản phẩm:</h5>
+            <table class="receipt-table">
+                <thead>
+                    <tr>
+                        <th>Tên sản phẩm</th>
+                        <th>SL</th>
+                        <th>Đơn giá</th>
+                        <th>Thành tiền</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${invoice.items.map(item => `
+                        <tr>
+                            <td>${item.name}</td>
+                            <td>${item.quantity} ${item.unit}</td>
+                            <td>${Utils.formatCurrency(item.price)}</td>
+                            <td>${Utils.formatCurrency(item.price * item.quantity)}</td>
+                        </tr>
                     `).join('')}
-                </div>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="receipt-total">
+            <div class="receipt-row total-row">
+                <span>TỔNG CỘNG:</span>
+                <span>${Utils.formatCurrency(invoice.total)}</span>
             </div>
         </div>
-    `;
-
-    const modal = document.createElement('div');
-    modal.className = 'hkd-modal show';
-    modal.innerHTML = `
-        <div class="hkd-modal-content" style="max-width: 500px;">
-            <div class="hkd-modal-header">
-                <h3>Thống kê doanh thu</h3>
-                <button class="hkd-modal-close">&times;</button>
-            </div>
-            <div class="hkd-modal-body">
-                ${modalContent}
-            </div>
-            <div class="hkd-modal-footer">
-                <button class="hkd-btn hkd-btn-primary modal-confirm">Đóng</button>
-            </div>
+        
+        <div class="receipt-footer">
+            <p>Cảm ơn quý khách!</p>
         </div>
     `;
     
-    document.body.appendChild(modal);
+    document.getElementById('receiptContent').innerHTML = receiptHtml;
+    
+    // Print button
+    document.getElementById('printReceipt').onclick = () => printReceipt(invoice);
+    
+    modal.show();
+}
 
-    const closeModal = () => {
-        modal.classList.remove('show');
-        setTimeout(() => modal.remove(), 300);
+function printReceipt(invoice) {
+    const printWindow = window.open('', '_blank');
+    const printContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Hóa đơn ${invoice.id}</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 20px; max-width: 300px; margin: 0 auto; }
+                .receipt-header { text-align: center; margin-bottom: 20px; }
+                .receipt-header h4 { margin: 0; font-size: 16px; }
+                .receipt-id { font-size: 12px; color: #666; }
+                .receipt-info { margin-bottom: 20px; }
+                .receipt-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+                .receipt-items table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                .receipt-items th, .receipt-items td { border-bottom: 1px dashed #ddd; padding: 5px; font-size: 12px; }
+                .receipt-total { border-top: 2px solid #000; padding-top: 10px; }
+                .total-row { font-weight: bold; font-size: 14px; }
+                .receipt-footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+                @media print {
+                    body { padding: 10px; }
+                }
+            </style>
+        </head>
+        <body>
+            ${document.getElementById('receiptContent').innerHTML}
+        </body>
+        </html>
+    `;
+    
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+    }, 250);
+}
+
+// Lịch sử hóa đơn
+function showInvoiceHistory() {
+    const modal = new bootstrap.Modal(document.getElementById('historyModal'));
+    
+    // Display history
+    const historyHtml = invoiceHistory.length > 0 ? `
+        <div class="history-list">
+            ${invoiceHistory.slice(0, 20).map(invoice => `
+                <div class="history-item" onclick="viewHistoryInvoice('${invoice.id}')">
+                    <div class="history-item-header">
+                        <span class="history-id">${invoice.id.substring(0, 8)}</span>
+                        <span class="history-date">${Utils.formatDate(invoice.date)}</span>
+                    </div>
+                    <div class="history-item-body">
+                        <div class="history-customer">${invoice.customerName}</div>
+                        <div class="history-total">${Utils.formatCurrency(invoice.total)}</div>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    ` : `
+        <div class="no-history">
+            <i class="fas fa-receipt"></i>
+            <p>Chưa có hóa đơn nào</p>
+        </div>
+    `;
+    
+    document.getElementById('historyContent').innerHTML = historyHtml;
+    
+    modal.show();
+}
+
+function viewHistoryInvoice(invoiceId) {
+    const invoice = invoiceHistory.find(inv => inv.id === invoiceId);
+    if (!invoice) return;
+    
+    showInvoiceReceipt(invoice);
+}
+
+// Báo cáo doanh thu
+function showRevenueReport() {
+    const modal = new bootstrap.Modal(document.getElementById('revenueModal'));
+    
+    // Tính toán thống kê
+    const today = new Date();
+    const thisMonth = today.getMonth();
+    const thisYear = today.getFullYear();
+    
+    // Filter invoices
+    const monthlyInvoices = invoiceHistory.filter(inv => {
+        const date = new Date(inv.date);
+        return date.getMonth() === thisMonth && date.getFullYear() === thisYear;
+    });
+    
+    const dailyInvoices = invoiceHistory.filter(inv => {
+        const date = new Date(inv.date);
+        return date.toDateString() === today.toDateString();
+    });
+    
+    // Calculate totals
+    const monthlyTotal = monthlyInvoices.reduce((sum, inv) => sum + inv.total, 0);
+    const dailyTotal = dailyInvoices.reduce((sum, inv) => sum + inv.total, 0);
+    const avgInvoice = invoiceHistory.length > 0 ? 
+        invoiceHistory.reduce((sum, inv) => sum + inv.total, 0) / invoiceHistory.length : 0;
+    
+    // Display statistics
+    const statsHtml = `
+        <div class="revenue-stats">
+            <div class="stat-card">
+                <div class="stat-value">${Utils.formatCurrency(dailyTotal)}</div>
+                <div class="stat-label">Hôm nay</div>
+                <div class="stat-detail">${dailyInvoices.length} hóa đơn</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-value">${Utils.formatCurrency(monthlyTotal)}</div>
+                <div class="stat-label">Tháng này</div>
+                <div class="stat-detail">${monthlyInvoices.length} hóa đơn</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-value">${invoiceHistory.length}</div>
+                <div class="stat-label">Tổng hóa đơn</div>
+                <div class="stat-detail">TB: ${Utils.formatCurrency(avgInvoice)}</div>
+            </div>
+        </div>
+        
+        <div class="revenue-chart">
+            <h5>Doanh thu 7 ngày gần nhất:</h5>
+            <canvas id="revenueChart" width="400" height="200"></canvas>
+        </div>
+    `;
+    
+    document.getElementById('revenueContent').innerHTML = statsHtml;
+    
+    modal.show();
+    
+    // Draw chart
+    setTimeout(() => drawRevenueChart(), 100);
+}
+
+function drawRevenueChart() {
+    const canvas = document.getElementById('revenueChart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Prepare data for last 7 days
+    const dailyData = {};
+    const today = new Date();
+    
+    for (let i = 6; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateKey = date.toISOString().split('T')[0];
+        dailyData[dateKey] = 0;
+    }
+    
+    // Fill with actual data
+    invoiceHistory.forEach(invoice => {
+        const invoiceDate = new Date(invoice.date).toISOString().split('T')[0];
+        if (dailyData[invoiceDate] !== undefined) {
+            dailyData[invoiceDate] += invoice.total;
+        }
+    });
+    
+    // Draw chart
+    const dates = Object.keys(dailyData);
+    const revenues = Object.values(dailyData);
+    
+    // Simple bar chart
+    const maxRevenue = Math.max(...revenues, 1);
+    const barWidth = canvas.width / dates.length - 10;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw bars
+    dates.forEach((date, index) => {
+        const barHeight = (revenues[index] / maxRevenue) * (canvas.height - 50);
+        const x = index * (barWidth + 10) + 5;
+        const y = canvas.height - barHeight - 30;
+        
+        // Bar
+        ctx.fillStyle = '#4a6ee0';
+        ctx.fillRect(x, y, barWidth, barHeight);
+        
+        // Value
+        ctx.fillStyle = '#333';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(
+            Utils.formatCurrency(revenues[index]).replace('₫', ''), 
+            x + barWidth / 2, 
+            y - 5
+        );
+        
+        // Date
+        const dateLabel = new Date(date).getDate() + '/' + (new Date(date).getMonth() + 1);
+        ctx.fillText(dateLabel, x + barWidth / 2, canvas.height - 10);
+    });
+}
+
+// Hiển thị tất cả sản phẩm
+function showAllProducts() {
+    const modal = new bootstrap.Modal(document.getElementById('productsModal'));
+    
+    const productsHtml = products.length > 0 ? `
+        <div class="products-modal-list">
+            ${products.map(product => `
+                <div class="product-modal-item">
+                    <div class="product-modal-info">
+                        <div class="product-modal-name">${product.name}</div>
+                        <div class="product-modal-details">
+                            <span>${product.msp}</span>
+                            <span>${product.category}</span>
+                            <span>${Utils.formatCurrency(product.price)}/${product.unit}</span>
+                        </div>
+                    </div>
+                    <div class="product-modal-stock">
+                        ${product.stock ? `Còn: ${product.stock}` : 'Không giới hạn'}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    ` : `
+        <div class="no-products-modal">
+            <i class="fas fa-box-open"></i>
+            <p>Chưa có sản phẩm nào</p>
+        </div>
+    `;
+    
+    document.getElementById('productsContent').innerHTML = productsHtml;
+    
+    modal.show();
+}
+
+// Dashboard
+function showDashboard() {
+    // Đóng sidebar nếu đang mở
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar.classList.contains('active')) {
+        toggleSidebar();
+    }
+}
+// Hiển thị modal thêm danh mục
+function showCategoryModal() {
+    // Reset form
+    document.getElementById('hkdCategoryName').value = '';
+    document.getElementById('hkdCategoryDescription').value = '';
+    
+    const modal = new bootstrap.Modal(document.getElementById('hkdCategoryModal'));
+    modal.show();
+}
+
+// Hiển thị modal thêm hàng hóa
+function showProductModal() {
+    // Reset form
+    document.getElementById('hkdProductCode').value = '';
+    document.getElementById('hkdProductName').value = '';
+    document.getElementById('hkdProductUnit').value = 'cái';
+    document.getElementById('hkdProductPrice').value = '';
+    document.getElementById('hkdProductStock').value = '0';
+    document.getElementById('hkdProductDescription').value = '';
+    
+    // Load danh mục vào select
+    const categorySelect = document.getElementById('hkdProductCategory');
+    categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
+    
+    categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category.id;
+        option.textContent = category.name;
+        categorySelect.appendChild(option);
+    });
+    
+    const modal = new bootstrap.Modal(document.getElementById('hkdProductModal'));
+    modal.show();
+}
+async function saveHKDCategory() {
+    const name = document.getElementById('hkdCategoryName').value.trim();
+    const description = document.getElementById('hkdCategoryDescription').value.trim();
+    
+    if (!name) {
+        Utils.showToast('Vui lòng nhập tên danh mục', 'error');
+        return;
+    }
+    
+    Utils.showLoading('Đang lưu danh mục...');
+    
+    try {
+        // Tạo category data
+        const categoryId = Utils.generateId();
+        const categoryData = {
+            id: categoryId,
+            hkdId: currentHKD.id,
+            name: name,
+            description: description,
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            _synced: false,
+            _createdBy: 'hkd' // Đánh dấu HKD tự tạo
+        };
+        
+        // 1. Lưu vào IndexedDB (hiển thị ngay)
+        await updateInStore(STORES.CATEGORIES, categoryData);
+        
+        // 2. Cập nhật UI ngay
+        categories.push(categoryData);
+        updateCategoryList();
+        
+        // 3. Đóng modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('hkdCategoryModal'));
+        if (modal) modal.hide();
+        
+        Utils.showToast(`Đã thêm danh mục "${name}"`, 'success');
+        
+        // 4. Sync lên Firebase (admin sẽ thấy realtime)
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // Cấu trúc chuẩn trên Firebase
+                const categoryRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${categoryId}`
+                );
+                
+                const firebaseData = {
+                    name: name,
+                    description: description,
+                    createdAt: categoryData.createdAt,
+                    lastUpdated: categoryData.lastUpdated,
+                    products: {}, // Node products rỗng
+                    _syncedAt: new Date().toISOString(),
+                    _createdBy: 'hkd'
+                };
+                
+                await categoryRef.set(firebaseData);
+                
+                // Đánh dấu đã sync
+                categoryData._synced = true;
+                categoryData._syncedAt = new Date().toISOString();
+                await updateInStore(STORES.CATEGORIES, categoryData);
+                
+                console.log('✅ HKD đã tạo danh mục trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync category:', firebaseError);
+                await addToSyncQueue({
+                    type: 'categories',
+                    data: categoryData
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi thêm danh mục:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+async function saveHKDProduct() {
+    const productData = {
+        id: Utils.generateId(),
+        msp: document.getElementById('hkdProductCode').value.trim(),
+        name: document.getElementById('hkdProductName').value.trim(),
+        categoryId: document.getElementById('hkdProductCategory').value,
+        unit: document.getElementById('hkdProductUnit').value.trim() || 'cái',
+        price: parseFloat(document.getElementById('hkdProductPrice').value) || 0,
+        stock: parseInt(document.getElementById('hkdProductStock').value) || 0,
+        description: document.getElementById('hkdProductDescription').value.trim(),
+        lastUpdated: new Date().toISOString(),
+        _synced: false,
+        _createdBy: 'hkd'
     };
     
-    modal.querySelector('.hkd-modal-close').addEventListener('click', closeModal);
-    modal.querySelector('.modal-confirm').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) closeModal();
-    });
-}
-
-    // Cập nhật trạng thái kết nối
-    updateConnectionStatus() {
-        const statusEl = document.getElementById('connection-status');
-        const statusTextEl = document.getElementById('connection-text');
-
-        if (!statusEl || !statusTextEl) return;
-        
-        const updateStatus = () => {
-            if (navigator.onLine) {
-                statusEl.className = 'status-dot online-dot';
-                statusTextEl.textContent = 'Trực tuyến';
-            } else {
-                statusEl.className = 'status-dot offline-dot';
-                statusTextEl.textContent = 'Offline';
-            }
-        };
-
-        updateStatus();
-        window.addEventListener('online', updateStatus);
-        window.addEventListener('offline', updateStatus);
+    // Validation
+    if (!productData.msp || !productData.name || !productData.categoryId || productData.price <= 0) {
+        Utils.showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
+        return;
     }
     
-    // Play sound effect
-    playAddToCartSound() {
-        // Có thể thêm sound effect ở đây
-        try {
-            // Ví dụ: const audio = new Audio('add-to-cart.mp3');
-            // audio.play();
-        } catch (error) {
-            // Ignore sound errors
+    Utils.showLoading('Đang lưu hàng hóa...');
+    
+    try {
+        // 1. Lưu vào IndexedDB (hiển thị ngay)
+        await updateInStore(STORES.PRODUCTS, { ...productData, hkdId: currentHKD.id });
+        
+        // 2. Cập nhật UI ngay
+        products.push({ ...productData, hkdId: currentHKD.id });
+        displayProducts();
+        
+        // 3. Đóng modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('hkdProductModal'));
+        if (modal) modal.hide();
+        
+        Utils.showToast(`Đã thêm sản phẩm "${productData.name}"`, 'success');
+        
+        // 4. Sync lên Firebase (admin sẽ thấy realtime)
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // Cấu trúc chuẩn: hkds/{hkdId}/categories/{categoryId}/products/{productId}
+                const productRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${productData.categoryId}/products/${productData.id}`
+                );
+                
+                const firebaseData = {
+                    msp: productData.msp,
+                    name: productData.name,
+                    unit: productData.unit,
+                    price: productData.price,
+                    stock: productData.stock,
+                    description: productData.description,
+                    lastUpdated: productData.lastUpdated,
+                    _syncedAt: new Date().toISOString(),
+                    _createdBy: 'hkd'
+                };
+                
+                await productRef.set(firebaseData);
+                
+                // Đánh dấu đã sync
+                productData._synced = true;
+                productData._syncedAt = new Date().toISOString();
+                await updateInStore(STORES.PRODUCTS, { ...productData, hkdId: currentHKD.id });
+                
+                console.log('✅ HKD đã tạo sản phẩm trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync product:', firebaseError);
+                await addToSyncQueue({
+                    type: 'products',
+                    data: { ...productData, hkdId: currentHKD.id }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi thêm hàng hóa:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+// Load dữ liệu quản lý HKD
+async function loadHKDManagementData() {
+    try {
+        // 1. Load danh mục (chỉ của HKD này)
+        const categoriesList = document.getElementById('hkdCategoriesList');
+        if (categoriesList) {
+            categoriesList.innerHTML = categories.map(category => `
+                <div class="col-md-4 mb-3">
+                    <div class="card category-management-card">
+                        <div class="card-body">
+                            <h6 class="card-title">${category.name}</h6>
+                            ${category.description ? `<p class="card-text small text-muted">${category.description}</p>` : ''}
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <i class="fas fa-box"></i> 
+                                    Sản phẩm: ${products.filter(p => p.categoryId === category.id).length}
+                                </small>
+                            </div>
+                            <div class="mt-2">
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="deleteHKDCategory('${category.id}')"
+                                        ${category._createdBy !== 'hkd' ? 'disabled title="Không thể xóa danh mục của Admin"' : ''}>
+                                    <i class="fas fa-trash"></i> Xóa
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            if (categories.length === 0) {
+                categoriesList.innerHTML = `
+                    <div class="col-12 text-center py-4">
+                        <i class="fas fa-folder-open fa-2x text-muted mb-2"></i>
+                        <p class="text-muted">Chưa có danh mục nào</p>
+                    </div>
+                `;
+            }
         }
+        
+        // 2. Load hàng hóa vào table
+        const productsTable = document.getElementById('hkdProductsTable');
+        if (productsTable) {
+            productsTable.innerHTML = products.map(product => {
+                const category = categories.find(c => c.id === product.categoryId);
+                const categoryName = category ? category.name : 'Không xác định';
+                
+                return `
+                    <tr>
+                        <td><code>${product.msp || ''}</code></td>
+                        <td>
+                            <strong>${product.name}</strong>
+                            ${product.description ? `<br><small class="text-muted">${product.description}</small>` : ''}
+                        </td>
+                        <td>${categoryName}</td>
+                        <td>${Utils.formatCurrency(product.price)}</td>
+                        <td>${product.stock || 0}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="editHKDProduct('${product.id}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" 
+                                        onclick="deleteHKDProduct('${product.id}')"
+                                        ${product._createdBy !== 'hkd' ? 'disabled title="Không thể xóa hàng hóa của Admin"' : ''}>
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            if (products.length === 0) {
+                productsTable.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center py-4">
+                            <i class="fas fa-box-open fa-2x text-muted mb-2"></i>
+                            <p class="text-muted">Chưa có hàng hóa nào</p>
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+        
+    } catch (error) {
+        console.error('❌ Lỗi load dữ liệu quản lý:', error);
+    }
+}
+// Xóa danh mục (HKD chỉ xóa được danh mục tự tạo)
+async function deleteHKDCategory(categoryId) {
+    const category = categories.find(c => c.id === categoryId);
+    if (!category) return;
+    
+    // Kiểm tra quyền: chỉ xóa được danh mục tự tạo
+    if (category._createdBy !== 'hkd') {
+        Utils.showToast('Không thể xóa danh mục của Admin', 'error');
+        return;
+    }
+    
+    const confirmed = await Utils.confirm(
+        `Xóa danh mục "${category.name}"? Tất cả sản phẩm trong danh mục sẽ bị xóa.`
+    );
+    if (!confirmed) return;
+    
+    Utils.showLoading('Đang xóa danh mục...');
+    
+    try {
+        // 1. Xóa sản phẩm trong danh mục
+        const categoryProducts = products.filter(p => p.categoryId === categoryId);
+        for (const product of categoryProducts) {
+            await deleteFromStore(STORES.PRODUCTS, product.id);
+        }
+        
+        // 2. Xóa danh mục
+        await deleteFromStore(STORES.CATEGORIES, categoryId);
+        
+        // 3. Cập nhật UI
+        categories = categories.filter(c => c.id !== categoryId);
+        products = products.filter(p => p.categoryId !== categoryId);
+        
+        // Reload cả trang bán hàng và modal quản lý
+        displayProducts();
+        updateCategoryList();
+        await loadHKDManagementData();
+        
+        Utils.showToast(`Đã xóa danh mục "${category.name}"`, 'success');
+        
+        // 4. Sync xóa lên Firebase
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // Xóa trên Firebase
+                const categoryRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${categoryId}`
+                );
+                await categoryRef.remove();
+                
+                console.log('✅ HKD đã xóa danh mục trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync delete category:', firebaseError);
+                await addToSyncQueue({
+                    type: 'categories_delete',
+                    data: {
+                        id: categoryId,
+                        hkdId: currentHKD.id
+                    }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi xóa danh mục:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
     }
 }
 
-// Khởi tạo khi DOM ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        if (window.location.pathname.includes('hkd.html') || 
-            document.getElementById('hkd-dashboard-section')?.style.display !== 'none') {
-            setTimeout(() => {
-                window.hkdManager = new HKDManager();
-            }, 500);
-        }
+// Hàm gọi điện thoại
+function callSupport() {
+    const phone = '0932155035';
+    
+    if (confirm(`Bạn muốn gọi đến số ${phone}?`)) {
+        window.location.href = `tel:${phone}`;
+    }
+}
+
+// Hàm sao chép số điện thoại
+function copyPhoneNumber() {
+    const phone = '0932155035';
+    
+    navigator.clipboard.writeText(phone).then(() => {
+        Utils.showToast('Đã sao chép số điện thoại', 'success');
+    }).catch(err => {
+        console.error('Lỗi sao chép:', err);
+        Utils.showToast('Lỗi sao chép', 'error');
     });
-} else {
-    if (window.location.pathname.includes('hkd.html') || 
-        document.getElementById('hkd-dashboard-section')?.style.display !== 'none') {
-        setTimeout(() => {
-            window.hkdManager = new HKDManager();
-        }, 500);
-    }
 }
+// Xuất các hàm global
+window.removeFromCart = removeFromCart;
+window.addToCart = addToCart;
+window.viewHistoryInvoice = viewHistoryInvoice;
+window.toggleSidebar = toggleSidebar;
+// Thêm vào cuối hkd.js
+window.forceSync = forceSync;
+window.syncFromFirebase = syncFromFirebase;
+window.cleanupHKD = cleanupHKD;
 
-// Export global
-if (typeof window !== 'undefined') {
-    window.HKDManager = HKDManager;
-}
+// Dọn dẹp khi page unload
+window.addEventListener('beforeunload', cleanupHKD);
+window.addEventListener('pagehide', cleanupHKD);
