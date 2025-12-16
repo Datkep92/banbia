@@ -22,8 +22,6 @@
             </div>
         </div>
         <div id="syncStatus" class="sync-status offline">
-    <i class="fas fa-wifi"></i>
-    <span>Đang offline</span>
 </div>
         <div class="header-right">
             <div class="cart-badge" onclick="toggleCart()">
@@ -42,27 +40,7 @@
             <!-- Menu items will be loaded by JavaScript -->
         </div>
         <!-- Thêm vào sidebar hoặc modal -->
-<div class="management-section">
-    <div class="management-item" onclick="showCategoryModal()">
-        <i class="fas fa-folder-plus"></i>
-        <span>Thêm danh mục</span>
-    </div>
-    
-    <div class="management-item" onclick="showProductModal()">
-        <i class="fas fa-box"></i>
-        <span>Thêm hàng hóa</span>
-    </div>
-    
-    <div class="management-item" onclick="showAllManagement()">
-        <i class="fas fa-list"></i>
-        <span>Quản lý của tôi</span>
-    </div>
-    
-    <div class="management-item" onclick="callSupport()">
-        <i class="fas fa-phone"></i>
-        <span>Liên hệ hỗ trợ</span>
-    </div>
-</div>
+
     </div>
     
     <!-- Cart Sidebar -->
@@ -126,12 +104,15 @@
             </div>
         </div>
         <div class="footer-right">
-            <button class="footer-btn btn-history" id="viewHistory">
-                <i class="fas fa-history"></i>
-            </button>
-            <button class="footer-btn btn-revenue" id="viewRevenue">
-                <i class="fas fa-chart-line"></i>
-            </button>
+            <button class="footer-btn btn-clear-foo1ter" id="clearCartFooter">
+    <i class="fas fa-trash-alt"></i>
+    <span class="footer-btn-text"></span>
+</button>
+<button class="footer-btn btn-checkout-foot1er" id="createInvoiceFooter">
+    <i class="fas fa-receipt"></i>
+    <span class="footer-btn-text"></span>
+</button>
+            
         </div>
     </footer>
     
@@ -445,7 +426,13 @@
         
         // Thêm các hàm global
         window.toggleCart = toggleCart;
-        
+        document.addEventListener('DOMContentLoaded', function() {
+    // Chỉ khởi tạo sync manager nếu người dùng đã đăng nhập
+    const user = getCurrentUser();
+    if (user) {
+        initSyncManager();
+    }
+});
         // Override cart display update để cập nhật footer
         const originalUpdateCartDisplay = updateCartDisplay;
         updateCartDisplay = function() {
