@@ -630,17 +630,17 @@ body {
 }
 
 .btn-edit {
-    background: #4a6ee0;
+    background: #7c988a;
     color: white;
 }
 
 .btn-delete {
     background: #dc3545;
-    color: white;
+    color: rgb(201, 127, 127);
 }
 
 .btn-edit:hover {
-    background: #3a5ecf;
+    background: hwb(121 26% 41%);
 }
 
 .btn-delete:hover {
@@ -650,7 +650,7 @@ body {
 .no-data {
     text-align: center;
     padding: 30px;
-    color: #6c757d;
+    color: #1faca5;
 }
 
 .no-data i {
@@ -715,7 +715,7 @@ body {
 }
 
 .btn-secondary:hover {
-    background: #5a6268;
+    background: #385e30;
     transform: translateY(-2px);
 }
 
