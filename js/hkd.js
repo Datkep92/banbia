@@ -529,26 +529,25 @@ function displayProducts(category = 'Tất cả') {
             </div>
 
             <!-- CONTROLS -->
-            <div class="product-controls">
-                <button 
-                    class="btn-decrease" 
-                    onclick="removeFromCart('${product.id}')">
-                    <i class="fas fa-minus"></i>
-                </button>
+        <div class="product-controls">
+            <button 
+                class="btn-decrease" 
+                onclick="removeFromCartWithVibration('${product.id}')">
+                <i class="fas fa-minus"></i>
+            </button>
 
-                <span class="quantity-display ${cartQuantity > 0 ? 'active' : ''}">
-                    ${cartQuantity > 0 ? cartQuantity : ''}
-                </span>
+            <span class="quantity-display ${cartQuantity > 0 ? 'active' : ''}">
+                ${cartQuantity > 0 ? cartQuantity : ''}
+            </span>
 
-                <button 
-                    class="btn-increase" 
-                    onclick="addToCart('${product.id}')">
-                    <i class="fas fa-plus"></i>
-                </button>
-            </div>
-
+            <button 
+                class="btn-increase" 
+                onclick="addToCartWithVibration('${product.id}')">
+                <i class="fas fa-plus"></i>
+            </button>
         </div>
-    `;
+    </div>
+`;
 }).join('');
 
 }
@@ -614,7 +613,6 @@ function updateProductCardState(productId) {
     }
 }
 
-// Cập nhật trong hàm addToCart và removeFromCart
 function addToCart(productId) {
     const product = products.find(p => p.id === productId);
     if (!product) return;
@@ -646,8 +644,8 @@ function addToCart(productId) {
     }
     
     updateCartDisplay();
-    updateProductCardState(productId); // ← CẬP NHẬT
-    playAddToCartSound();
+    updateProductCardState(productId);
+    vibrateOnAddToCart(); // THAY ÂM THANH BẰNG RUNG
     saveCart();
 }
 
@@ -751,11 +749,11 @@ function updateCartDisplay() {
                         </div>
                     </div>
                     <div class="cart-item-controls">
-                        <button class="btn-decrease" onclick="removeFromCart('${item.productId}')">
+                        <button class="btn-decrease" onclick="removeFromCartWithVibration('${item.productId}')">
                             <i class="fas fa-minus"></i>
                         </button>
                         <span class="cart-item-quantity">${item.quantity}</span>
-                        <button class="btn-increase" onclick="addToCart('${item.productId}')">
+                        <button class="btn-increase" onclick="addToCartWithVibration('${item.productId}')">
                             <i class="fas fa-plus"></i>
                         </button>
                     </div>
@@ -769,7 +767,6 @@ function updateCartDisplay() {
     
     updateCartSummary();
 }
-
 function updateCartSummary() {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     
@@ -781,31 +778,16 @@ function saveCart() {
     localStorage.setItem(`cart_${currentHKD.id}`, JSON.stringify(cart));
 }
 
-function playAddToCartSound() {
-    try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        oscillator.frequency.value = 800;
-        oscillator.type = 'sine';
-        
-        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + 0.1);
-        
-        setTimeout(() => {
-            oscillator.disconnect();
-            gainNode.disconnect();
-        }, 200);
-    } catch (error) {
-        console.log('Audio not supported:', error.message);
+function vibrateOnAddToCart() {
+    // Kiểm tra hỗ trợ Vibration API
+    if ('vibrate' in navigator) {
+        // Rung nhẹ 50ms
+        navigator.vibrate(50);
+    } else if ('webkitVibrate' in navigator) {
+        // Dành cho iOS/Safari
+        navigator.webkitVibrate(50);
     }
+    // Nếu không hỗ trợ vibration, không làm gì cả
 }
 
 function calculateCartTotal() {
@@ -2160,7 +2142,44 @@ function setupHKDEventListeners() {
     
     console.log('✅ Đã thiết lập xong event listeners');
 }
+// Hàm wrapper có rung
+function addToCartWithVibration(productId) {
+    addToCart(productId);
+    
+    // Đảm bảo có rung
+    if ('vibrate' in navigator) {
+        navigator.vibrate(50);
+    } else if ('webkitVibrate' in navigator) {
+        navigator.webkitVibrate(50);
+    }
+}
 
+function removeFromCart(productId) {
+    const existingItem = cart.find(item => item.productId === productId);
+    
+    if (existingItem) {
+        if (existingItem.quantity > 1) {
+            existingItem.quantity -= 1;
+        } else {
+            cart = cart.filter(item => item.productId !== productId);
+        }
+        
+        // Rung khi giảm số lượng
+        if ('vibrate' in navigator) {
+            navigator.vibrate(30); // Rung ngắn hơn
+        } else if ('webkitVibrate' in navigator) {
+            navigator.webkitVibrate(30);
+        }
+    }
+    
+    updateCartDisplay();
+    updateProductCardState(productId);
+    saveCart();
+}
+window.removeFromCart = removeFromCart;
+window.addToCart = addToCart;
+window.removeFromCartWithVibration = removeFromCartWithVibration;
+window.addToCartWithVibration = addToCartWithVibration;
 // ========== EXPORT FUNCTIONS ==========
 window.removeFromCart = removeFromCart;
 window.addToCart = addToCart;
