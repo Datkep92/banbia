@@ -261,7 +261,56 @@ async function handleSmartSync() {
         Utils.showToast('Lỗi đồng bộ dữ liệu', 'error');
     }
 }
+async function handleAdminHardSync() {
+    const confirmSync = confirm("Hệ thống sẽ dọn dẹp bộ nhớ đệm và tải lại toàn bộ danh sách HKD/Hàng hóa từ máy chủ. Bạn có muốn tiếp tục?");
+    if (!confirmSync) return;
 
+    try {
+        // Sử dụng Utils.showLoading theo chuẩn của project
+        if (typeof Utils !== 'undefined' && Utils.showLoading) {
+            Utils.showLoading(true, 'Đang làm mới dữ liệu hệ thống...');
+        }
+        
+        console.log('🧹 Admin Sweep: Cleaning local database...');
+        const db = await getDB();
+        
+        // Admin cần xóa sạch các bảng để tránh trùng dữ liệu khi import
+        const storesToClear = [STORES.HKDS, STORES.PRODUCTS, STORES.CATEGORIES, STORES.INVOICES];
+        
+        for (const storeName of storesToClear) {
+            const transaction = db.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            await new Promise((resolve) => {
+                store.clear().onsuccess = () => resolve();
+            });
+        }
+
+        console.log('📥 Admin Re-sync: Fetching fresh data from Firebase...');
+        // Gọi hàm đồng bộ cốt lõi của Admin
+        await syncEssentialData(); 
+        
+        if (typeof Utils !== 'undefined' && Utils.showToast) {
+            Utils.showToast('✅ Đã cập nhật dữ liệu Admin mới nhất!', 'success');
+        }
+        
+        // Reload để khởi tạo lại toàn bộ Dashboard và List
+        setTimeout(() => {
+            location.reload();
+        }, 1000);
+
+    } catch (error) {
+        console.error('❌ Lỗi đồng bộ Admin:', error);
+        if (typeof Utils !== 'undefined' && Utils.showToast) {
+            Utils.showToast('Lỗi: ' + error.message, 'error');
+        }
+    } finally {
+        if (typeof Utils !== 'undefined' && Utils.showLoading) {
+            Utils.showLoading(false);
+        }
+    }
+}
+
+window.handleAdminHardSync = handleAdminHardSync;
 // ========== HÀM QUẢN LÝ HKD ==========
 async function saveHKD() {
     const saveButton = document.getElementById('saveHKD');
@@ -1698,13 +1747,16 @@ function addMarkAllAsReadButton() {
     
     const header = container.querySelector('.section-header');
     if (header) {
-        const button = document.createElement('button');
-        button.id = 'markAllInvoicesRead';
-        button.className = 'btn-mark-all-read';
-        button.innerHTML = '<i class="fas fa-check-double"></i> Đánh dấu tất cả đã xem';
-        button.onclick = markAllInvoicesAsRead;
-        header.appendChild(button);
-    }
+    const button = document.createElement('button');
+    button.id = 'markAllInvoicesRead';
+    // Đảm bảo class này khớp với CSS ở trên
+    button.className = 'btn-mark-all-read'; 
+    button.innerHTML = '<i class="fas fa-check-double"></i> Đánh dấu tất cả đã xem';
+    button.onclick = markAllInvoicesAsRead;
+    
+    // Nếu header là một div flex, nút sẽ tự động căn lề đẹp
+    header.appendChild(button);
+}
 }
 
 function markAllInvoicesAsRead() {

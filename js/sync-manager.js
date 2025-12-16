@@ -2004,7 +2004,44 @@ function stopSyncManager() {
     
     console.log('🛑 Đã dừng Sync Manager');
 }
+// Hàm xóa sạch dữ liệu và tải lại
+async function hardSync() {
+    if (!confirm("Bạn có chắc chắn muốn làm mới toàn bộ dữ liệu? Hành động này sẽ xóa dữ liệu tạm thời trên máy và tải lại từ server.")) return;
+    
+    try {
+        Utils.showToast("Đang xóa dữ liệu cũ...", "info");
+        
+        // 1. Xóa các Store quan trọng trong IndexedDB
+        const db = await getDB();
+        const storesToClear = [STORES.HKDS, STORES.PRODUCTS, STORES.CATEGORIES, STORES.INVOICES];
+        
+        for (const storeName of storesToClear) {
+            await new Promise((resolve, reject) => {
+                const transaction = db.transaction(storeName, 'readwrite');
+                const store = transaction.objectStore(storeName);
+                const request = store.clear();
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject();
+            });
+        }
 
+        // 2. Tải lại dữ liệu từ Firebase
+        Utils.showToast("Đang tải dữ liệu mới từ Server...", "info");
+        if (getCurrentUser().role === 'admin') {
+            await syncEssentialData(); // Hàm của Admin
+        } else {
+            await syncFromFirebase(); // Hàm của HKD
+        }
+
+        Utils.showToast("✅ Đã làm mới dữ liệu thành công!", "success");
+        setTimeout(() => location.reload(), 1500); // Reload để giao diện sạch sẽ nhất
+        
+    } catch (error) {
+        console.error("Lỗi Hard Sync:", error);
+        Utils.showToast("Lỗi khi đồng bộ dữ liệu", "error");
+    }
+}
+window.hardSync = hardSync;
 // ========== EXPORT FUNCTIONS ==========
 window.initSyncManager = initSyncManager;
 window.syncall = syncall;

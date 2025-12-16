@@ -667,22 +667,55 @@ function removeFromCart(productId) {
     saveCart();
 }
 
-function clearCart() {
-    const confirmed = Utils.confirm('Bạn có chắc chắn muốn xóa giỏ hàng?');
-    if (!confirmed) return;
+/**
+ * Hàm xóa giỏ hàng
+ * @param {boolean} showConfirm - Có hiển thị hộp thoại xác nhận hay không
+ */
+function clearCart(showConfirm = true) {
+    if (showConfirm) {
+        const confirmed = confirm('Bạn có chắc chắn muốn xóa toàn bộ giỏ hàng?');
+        if (!confirmed) return;
+    }
     
+    // 1. Làm trống mảng giỏ hàng
     cart = [];
+    
+    // 2. Cập nhật hiển thị giỏ hàng chính (ngoài màn hình bán hàng)
     updateCartDisplay();
     
+    // 3. Cập nhật lại số lượng hiển thị trên các thẻ sản phẩm (về 0)
     document.querySelectorAll('.product-card').forEach(card => {
-        const productId = card.dataset.productId;
-        updateProductQuantity(productId);
+        const productId = card.getAttribute('data-id'); // Kiểm tra lại dataset.productId hay data-id tùy code bạn
+        if (productId) {
+            updateProductQuantity(productId);
+        }
     });
     
+    // 4. Lưu trạng thái giỏ hàng trống vào LocalStorage
     saveCart();
     
-    Utils.showToast('Đã xóa giỏ hàng', 'success');
+    // 5. NẾU ĐANG MỞ POPUP XÁC NHẬN -> Cập nhật hoặc đóng popup
+    const modal = document.getElementById('checkoutModal');
+    if (modal && modal.style.display === 'block') {
+        const scrollList = document.getElementById('checkoutScrollList');
+        if (scrollList) scrollList.innerHTML = ''; // Xóa danh sách trong popup
+        document.getElementById('checkoutTotalAmount').innerText = '0đ';
+        
+        // Tự động đóng popup sau khi xóa vì không còn gì để xem
+        setTimeout(() => {
+            closeCheckoutModal();
+        }, 500);
+    }
+    
+    if (showConfirm) {
+        Utils.showToast('Đã dọn dẹp giỏ hàng', 'success');
+    }
 }
+
+// Hàm bổ trợ để dùng cho nút "Xóa giỏ" trong Popup
+window.clearCartAndClose = function() {
+    clearCart(true); // Gọi hàm gốc với xác nhận
+};
 
 function updateProductQuantity(productId) {
     const productCard = document.querySelector(`.product-card[data-product-id="${productId}"]`);
@@ -1930,25 +1963,53 @@ function updateSyncStatus() {
 }
 
 async function forceSync() {
-    if (isSyncing) {
-        console.log('🔄 Đang sync, bỏ qua...');
-        return;
-    }
-    
-    Utils.showLoading('Đang đồng bộ dữ liệu...');
-    
+    const confirmSync = confirm("Hệ thống sẽ xóa dữ liệu tạm trên máy và tải lại từ Server để tránh lỗi trùng lặp. Bạn có muốn tiếp tục?");
+    if (!confirmSync) return;
+
     try {
-        await syncFromFirebase();
-        Utils.showToast('Đồng bộ hoàn tất', 'success');
+        // SỬA Ở ĐÂY: Thêm Utils. trước showLoading
+        if (typeof Utils !== 'undefined' && Utils.showLoading) {
+            Utils.showLoading(true, 'Đang làm mới toàn bộ dữ liệu...');
+        }
         
+        console.log('Sweep: Cleaning IndexedDB...');
+        const db = await getDB();
+        const storesToClear = [STORES.PRODUCTS, STORES.CATEGORIES, STORES.INVOICES];
+        
+        for (const storeName of storesToClear) {
+            const transaction = db.transaction(storeName, 'readwrite');
+            await new Promise((resolve) => {
+                transaction.objectStore(storeName).clear().onsuccess = () => resolve();
+            });
+        }
+
+        console.log('📥 Syncing from Firebase...');
+        await syncFromFirebase(); 
+        
+        // SỬA Ở ĐÂY: Thêm Utils. trước showToast (nếu có lỗi tương tự)
+        if (typeof Utils !== 'undefined' && Utils.showToast) {
+            Utils.showToast('✅ Đã làm mới dữ liệu thành công!', 'success');
+        }
+        
+        setTimeout(() => {
+            location.reload();
+        }, 1000);
+
     } catch (error) {
-        console.error('❌ Lỗi force sync:', error);
-        Utils.showToast('Lỗi đồng bộ', 'error');
+        console.error('❌ Lỗi khi buộc đồng bộ:', error);
+        if (typeof Utils !== 'undefined' && Utils.showToast) {
+            Utils.showToast('Lỗi đồng bộ: ' + error.message, 'error');
+        }
     } finally {
-        Utils.hideLoading();
+        // SỬA Ở ĐÂY: Thêm Utils. trước showLoading(false) thay vì hideLoading()
+        if (typeof Utils !== 'undefined' && Utils.showLoading) {
+            Utils.showLoading(false);
+        }
     }
 }
-
+window.handleSidebarSync = async function() {
+    await forceSync(); // Gọi hàm forceSync đã sửa ở trên
+};
 function cleanupHKD() {
    
     
