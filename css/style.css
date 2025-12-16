@@ -750,4 +750,68 @@ body {
     overflow: hidden;
     margin: 0;
     padding: 0;
+
+}
+
+///////////////
+/* CÁC THÀNH PHẦN CẦN CHỐNG ZOOM ĐẶC BIỆT */
+
+/* Form inputs trong bán hàng */
+.product-controls input[type="number"],
+.cart-item-controls input[type="number"],
+#customerName,
+#imageUrlInput,
+.edit-form input,
+.edit-form textarea,
+.edit-form select {
+    font-size: 16px !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    border-radius: 8px !important;
+    padding: 12px 16px !important;
+    min-height: 48px !important; /* Touch target size */
+}
+
+/* Nút bấm trong ứng dụng */
+.btn-checkout,
+.btn-clear,
+.footer-btn,
+.action-btn,
+.modal-tab,
+.btn-save,
+.btn-cancel {
+    min-height: 48px !important;
+    min-width: 48px !important;
+    font-size: 16px !important;
+    -webkit-tap-highlight-color: transparent !important;
+    touch-action: manipulation !important;
+}
+
+/* Product card - chống long press */
+.product-card {
+    -webkit-touch-callout: none !important;
+    -webkit-user-select: none !important;
+    user-select: none !important;
+}
+
+/* Giỏ hàng và các interactive elements */
+.cart-item,
+.history-item,
+.product-modal-item {
+    touch-action: pan-y !important;
+}
+
+/* Modal content - chống scroll zoom */
+.modal-content {
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+
+/* Price display - chống text selection */
+.product-price,
+.cart-item-total,
+.summary-value {
+    -webkit-user-select: none !important;
+    user-select: none !important;
 }
