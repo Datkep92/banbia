@@ -2212,3 +2212,62 @@ window.logout = logout;
 // Dọn dẹp khi page unload
 window.addEventListener('beforeunload', cleanupHKD);
 window.addEventListener('pagehide', cleanupHKD);
+// Thêm vào file JS chính
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. Chặn double tap to zoom
+    let lastTouchEnd = 0;
+    document.addEventListener('touchend', function(event) {
+        const now = Date.now();
+        if (now - lastTouchEnd <= 300) {
+            event.preventDefault();
+        }
+        lastTouchEnd = now;
+    }, false);
+
+    // 2. Chặn pinch zoom
+    document.addEventListener('touchmove', function(event) {
+        if (event.scale !== 1) {
+            event.preventDefault();
+        }
+    }, { passive: false });
+
+    // 3. Chặn context menu (long press)
+    document.addEventListener('contextmenu', function(event) {
+        event.preventDefault();
+        return false;
+    });
+
+    // 4. Fix cho iOS input zoom
+    const inputs = document.querySelectorAll('input, textarea, select');
+    inputs.forEach(input => {
+        input.addEventListener('focus', function() {
+            // Force font-size để ngăn zoom
+            this.style.fontSize = '16px';
+        });
+        
+        input.addEventListener('blur', function() {
+            // Restore font-size nếu cần
+            this.style.fontSize = '';
+        });
+    });
+
+    // 5. Disable image dragging
+    const images = document.querySelectorAll('img');
+    images.forEach(img => {
+        img.setAttribute('draggable', 'false');
+        img.style.pointerEvents = 'none';
+    });
+
+    console.log('🔒 Anti-zoom protection enabled');
+});
+
+// Force disable zoom on orientation change
+window.addEventListener('orientationchange', function() {
+    document.body.style.maxHeight = '100vh';
+    document.body.style.overflow = 'hidden';
+    
+    setTimeout(function() {
+        document.body.style.maxHeight = '';
+        document.body.style.overflow = '';
+    }, 300);
+});
