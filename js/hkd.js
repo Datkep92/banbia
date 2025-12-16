@@ -2212,3 +2212,4 @@ window.logout = logout;
 // Dọn dẹp khi page unload
 window.addEventListener('beforeunload', cleanupHKD);
 window.addEventListener('pagehide', 
+
