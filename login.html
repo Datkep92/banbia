@@ -572,20 +572,19 @@ function toggleRegisterPassword() {
     }
 }
 
-// Xử lý đăng ký HKD
 async function handleRegister(event) {
     event.preventDefault();
     
-    // Lấy dữ liệu từ form
+    // 1. Lấy dữ liệu từ form
     const name = document.getElementById('registerName').value.trim();
     const phone = document.getElementById('registerPhone').value.trim();
     const address = document.getElementById('registerAddress').value.trim();
     const password = document.getElementById('registerPassword').value;
     const confirmPassword = document.getElementById('registerConfirmPassword').value;
     
-    console.log('📝 Đăng ký HKD với:', { name, phone, address, passwordLength: password.length });
+    console.log('📝 Bắt đầu đăng ký HKD mới:', { name, phone });
     
-    // Validation
+    // 2. Validation cơ bản
     if (!name || !phone || !password) {
         showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
         return;
@@ -601,93 +600,98 @@ async function handleRegister(event) {
         return;
     }
     
-    if (!Utils.validatePhone(phone)) {
+    if (typeof Utils !== 'undefined' && !Utils.validatePhone(phone)) {
         showToast('Số điện thoại không hợp lệ', 'error');
         return;
     }
     
     try {
-        // Hiển thị loading
-        showLoading('Đang đăng ký tài khoản...');
+        showLoading('Đang xử lý đăng ký...');
         
-        // Khởi tạo Firebase
+        // 3. Khởi tạo Firebase và DB
         await initFirebase();
+        await initIndexedDB();
         
-        // Kiểm tra số điện thoại đã tồn tại chưa
+        // 4. Kiểm tra trùng lặp trên Firebase
         const isDuplicate = await checkDuplicatePhone(phone);
         if (isDuplicate) {
-            throw new Error('Số điện thoại đã được đăng ký');
+            throw new Error('Số điện thoại này đã được đăng ký tài khoản');
+        }
+
+        // =========================================================
+        // BƯỚC QUAN TRỌNG: DỌN DẸP DỮ LIỆU CŨ TRƯỚC KHI TẠO MỚI
+        // Tránh lỗi Admin import không hiển thị hàng hóa do trùng DB local
+        // =========================================================
+        console.log('🧹 Đang dọn dẹp dữ liệu local cũ...');
+        const db = await getDB();
+        const storesToClear = [STORES.PRODUCTS, STORES.CATEGORIES, STORES.INVOICES, STORES.SYNC_QUEUE];
+        
+        for (const storeName of storesToClear) {
+            const transaction = db.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            await new Promise((resolve) => {
+                const req = store.clear();
+                req.onsuccess = () => resolve();
+                req.onerror = () => resolve(); // Vẫn tiếp tục nếu lỗi
+            });
         }
         
-        // Tạo ID cho HKD
-        const hkdId = Utils.generateId();
+        // 5. Khởi tạo ID và cấu trúc dữ liệu
+        const hkdId = phone; // Sử dụng phone làm ID để dễ quản lý hoặc dùng Utils.generateId()
+        const timestamp = new Date().toISOString();
         
-        // Dữ liệu HKD
-        const hkdData = {
+        const hkdDataForLocal = {
             id: hkdId,
             name: name,
             phone: phone,
             address: address,
             password: password,
             role: 'hkd',
-            createdAt: new Date().toISOString(),
-            lastUpdated: new Date().toISOString(),
-            _synced: true,
-            _autoRegistered: true // Đánh dấu đăng ký tự động
+            createdAt: timestamp,
+            lastUpdated: timestamp,
+            _synced: true
         };
         
-        // 1. Lưu lên Firebase với cấu trúc chuẩn
         const firebaseData = {
             info: {
+                id: hkdId,
                 name: name,
                 phone: phone,
                 address: address,
-                password: password, // QUAN TRỌNG: lưu mật khẩu
+                password: password,
                 role: 'hkd',
-                createdAt: hkdData.createdAt,
-                lastUpdated: hkdData.lastUpdated,
-                _syncedAt: new Date().toISOString(),
+                createdAt: timestamp,
+                lastUpdated: timestamp,
                 _autoRegistered: true
             },
-            categories: {}, // Danh mục rỗng ban đầu
-            invoices: {}    // Hóa đơn rỗng ban đầu
+            categories: {}, 
+            products: {},
+            invoices: {}
         };
         
-        const hkdRef = firebase.database().ref(`hkds/${hkdId}`);
-        await hkdRef.set(firebaseData);
+        // 6. Lưu lên Firebase
+        await firebase.database().ref(`hkds/${hkdId}`).set(firebaseData);
+        console.log('✅ Đã lưu thông tin lên Firebase');
         
-        console.log('✅ Đã tạo HKD trên Firebase:', hkdId);
+        // 7. Lưu vào IndexedDB local
+        await updateInStore(STORES.HKDS, hkdDataForLocal);
+        console.log('✅ Đã khởi tạo IndexedDB sạch cho HKD mới');
         
-        // 2. Lưu vào IndexedDB local (để có thể login offline sau này)
-        try {
-            // Khởi tạo IndexedDB
-            await initIndexedDB();
-            
-            // Lưu HKD vào IndexedDB
-            await updateInStore(STORES.HKDS, hkdData);
-            
-            console.log('✅ Đã lưu HKD vào IndexedDB local');
-        } catch (dbError) {
-            console.warn('⚠️ Không thể lưu vào IndexedDB:', dbError);
-            // Không block nếu lỗi IndexedDB
-        }
-        
-        // 3. Đăng nhập tự động
-        console.log('🔑 Tự động đăng nhập sau khi đăng ký...');
-        
+        // 8. Thiết lập trạng thái đăng nhập
         currentUser = {
             id: hkdId,
             phone: phone,
             name: name,
-            address: address,
             role: 'hkd',
-            loginTime: new Date().toISOString()
+            loginTime: timestamp
         };
         
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
         
-        // 4. Chuyển đến trang HKD
-        showToast('Đăng ký thành công! Đang chuyển đến trang HKD...', 'success');
+        // 9. Thông báo và chuyển hướng
+        showToast('Đăng ký thành công! Đang khởi tạo không gian làm việc...', 'success');
+        
+        // Chạy nền việc tải dữ liệu mẫu nếu cần ở đây
         
         setTimeout(() => {
             window.location.href = 'hkd.html';
@@ -695,12 +699,11 @@ async function handleRegister(event) {
         
     } catch (error) {
         console.error('❌ Lỗi đăng ký:', error);
-        showToast(`Lỗi đăng ký: ${error.message}`, 'error');
+        showToast(error.message, 'error');
     } finally {
         hideLoading();
     }
 }
-
 // Kiểm tra số điện thoại trùng
 async function checkDuplicatePhone(phone) {
     try {
