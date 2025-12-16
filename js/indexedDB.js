@@ -1,7 +1,6 @@
 // IndexedDB Configuration
 const DB_NAME = 'BanHangDB';
-const DB_VERSION = 3; // Tăng version khi thay đổi schema
-
+const DB_VERSION = 4; // Tăng lên 4 để cập nhật Schema
 // Store names
 const STORES = {
     HKDS: 'hkds',
@@ -27,21 +26,37 @@ function initIndexedDB() {
         
         request.onupgradeneeded = (event) => {
             const db = event.target.result;
+            const transaction = event.currentTarget.transaction;
             
-            // Tạo các stores nếu chưa tồn tại
+            // 1. HKDS
             if (!db.objectStoreNames.contains(STORES.HKDS)) {
                 const hkdStore = db.createObjectStore(STORES.HKDS, { keyPath: 'id' });
                 hkdStore.createIndex('phone', 'phone', { unique: true });
                 hkdStore.createIndex('name', 'name', { unique: false });
             }
             
+            // 2. PRODUCTS (SỬA LOGIC UNIQUE TẠI ĐÂY)
+            let productStore;
             if (!db.objectStoreNames.contains(STORES.PRODUCTS)) {
-                const productStore = db.createObjectStore(STORES.PRODUCTS, { keyPath: 'id' });
-                productStore.createIndex('hkdId', 'hkdId', { unique: false });
-                productStore.createIndex('category', 'category', { unique: false });
-                productStore.createIndex('msp', 'msp', { unique: true });
+                productStore = db.createObjectStore(STORES.PRODUCTS, { keyPath: 'id' });
+            } else {
+                productStore = transaction.objectStore(STORES.PRODUCTS);
+                // Xóa index cũ bị lỗi unique nếu có
+                if (productStore.indexNames.contains('msp_hkd')) {
+                    productStore.deleteIndex('msp_hkd');
+                }
             }
             
+            // Tạo lại index cho product
+            if (!productStore.indexNames.contains('hkdId')) productStore.createIndex('hkdId', 'hkdId', { unique: false });
+            if (!productStore.indexNames.contains('categoryId')) productStore.createIndex('categoryId', 'categoryId', { unique: false });
+            if (!productStore.indexNames.contains('msp')) productStore.createIndex('msp', 'msp', { unique: false });
+            // Index kết hợp (hkdId + msp) - Đặt unique: false để cho phép ghi đè mượt mà
+            if (!productStore.indexNames.contains('hkd_msp')) {
+                productStore.createIndex('hkd_msp', ['hkdId', 'msp'], { unique: false });
+            }
+
+            // 3. INVOICES
             if (!db.objectStoreNames.contains(STORES.INVOICES)) {
                 const invoiceStore = db.createObjectStore(STORES.INVOICES, { keyPath: 'id' });
                 invoiceStore.createIndex('hkdId', 'hkdId', { unique: false });
@@ -49,18 +64,21 @@ function initIndexedDB() {
                 invoiceStore.createIndex('status', 'status', { unique: false });
             }
             
+            // 4. CATEGORIES
             if (!db.objectStoreNames.contains(STORES.CATEGORIES)) {
                 const categoryStore = db.createObjectStore(STORES.CATEGORIES, { keyPath: 'id' });
                 categoryStore.createIndex('hkdId', 'hkdId', { unique: false });
                 categoryStore.createIndex('name', 'name', { unique: false });
             }
             
+            // 5. SYNC QUEUE
             if (!db.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
                 const syncStore = db.createObjectStore(STORES.SYNC_QUEUE, { keyPath: 'id', autoIncrement: true });
                 syncStore.createIndex('type', 'type', { unique: false });
                 syncStore.createIndex('status', 'status', { unique: false });
             }
             
+            // 6. LAST SYNC
             if (!db.objectStoreNames.contains(STORES.LAST_SYNC)) {
                 db.createObjectStore(STORES.LAST_SYNC, { keyPath: 'storeName' });
             }
@@ -91,10 +109,15 @@ async function updateInStore(storeName, data) {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([storeName], 'readwrite');
         const store = transaction.objectStore(storeName);
+        
+        // Sử dụng .put() để tự động ghi đè nếu trùng ID (KeyPath)
         const request = store.put(data);
         
         request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        request.onerror = (e) => {
+            console.error(`❌ Lỗi IndexedDB tại store [${storeName}]:`, e.target.error);
+            reject(e.target.error);
+        };
     });
 }
 
