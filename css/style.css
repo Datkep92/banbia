@@ -757,11 +757,3 @@ body {
 
 
 
-/* 2. Chặn zoom trên mọi phần tử */
-* {
-    touch-action: none !important;
-    -webkit-user-select: none !important;
-    user-select: none !important;
-    -webkit-touch-callout: none !important;
-}
-
