@@ -2083,3 +2083,63 @@
     background: #ef4444;
     display: block;
 }
+
+.checkout-layout {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr; /* Tách 2 cột */
+    gap: 20px;
+    max-height: 80vh;
+}
+
+.scrollable-product-list {
+    max-height: 400px; /* Chiều cao cố định để cuộn */
+    overflow-y: auto;
+    border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.input-field {
+    margin-bottom: 12px;
+}
+
+.input-field label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 4px;
+    color: #666;
+}
+
+.input-field input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background: #f9f9f9;
+}
+
+.checkout-actions {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.btn-clear-cart {
+    background: #fee2e2;
+    color: #ef4444;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn-confirm-checkout {
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
