@@ -805,29 +805,3 @@ body {
     overscroll-behavior: none !important;
 }
 
-/* ============================================
-   CSS NÂNG CAO HƠN (NẾU CẦN)
-============================================= */
-
-/* Chặn hoàn toàn mọi tương tác zoom */
-@media (pointer: coarse) {
-    /* Chỉ áp dụng cho thiết bị cảm ứng */
-    html {
-        -ms-touch-action: none;
-        touch-action: none;
-    }
-    
-    /* Chặn double-tap zoom */
-    * {
-        -webkit-tap-highlight-color: transparent;
-    }
-}
-
-/* Đảm bảo viewport luôn cố định */
-@viewport {
-    width: device-width;
-    zoom: 1.0;
-    min-zoom: 1.0;
-    max-zoom: 1.0;
-    user-zoom: fixed;
-}
