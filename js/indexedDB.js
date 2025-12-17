@@ -1,6 +1,6 @@
 // IndexedDB Configuration
 const DB_NAME = 'BanHangDB';
-const DB_VERSION = 3; // Tăng version khi thay đổi schema
+const DB_VERSION = 7; // Tăng version khi thay đổi schema
 
 // Store names
 const STORES = {
@@ -349,3 +349,4 @@ if (typeof module !== 'undefined' && module.exports) {
         isIndexedDBSupported
     };
 }
+
