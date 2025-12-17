@@ -752,5 +752,9 @@ body {
     padding: 0;
 
 }
+/* CHẶN ZOOM SIÊU ĐƠN GIẢN */
+html { touch-action: none; }
+* { user-select: none; }
+input, textarea { font-size: 16px; touch-action: auto; user-select: text; }
 
 
