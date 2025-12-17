@@ -752,6 +752,11 @@ body {
     padding: 0;
 
 }
+/* CHỈ 2 DÒNG NÀY LÀ ĐỦ */
+html { 
+    touch-action: pan-x pan-y; /* Cho phép scroll, chặn zoom */
+    -webkit-text-size-adjust: 100%; /* Ngăn zoom text trên iOS */
+}
 
 
 
