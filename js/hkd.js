@@ -1,69 +1,104 @@
-
-
 // HKD module - Bán hàng, quản lý đơn hàng
 let currentHKD = null;
 let products = [];
 let categories = [];
 let cart = [];
 let invoiceHistory = [];
+// Thêm các biến global mới
+let isSyncing = false;
 let hkdSyncInterval = null;
 
+// Sửa hàm initHKDPage để khởi tạo sync
 async function initHKDPage() {
     try {
+         setTimeout(async () => {
+        if (!currentHKD) return;
+        
+        const products = await getProductsByHKD(currentHKD.id);
+        const categories = await getCategoriesByHKD(currentHKD.id);
+        
+        if ((products.length === 0 || categories.length === 0) && navigator.onLine) {
+            console.log('📭 HKD: Dữ liệu trống, thực hiện sync...');
+            Utils.showToast('Đang tải dữ liệu...', 'info');
+            
+            if (typeof syncHKDDataFromFirebase === 'function') {
+                await syncHKDDataFromFirebase(currentHKD.id);
+                await loadHKDData(); // Tải lại sau sync
+                displayProducts(); // Refresh UI
+            }
+        }
+    }, 2000);
+        // Khởi tạo toàn bộ hệ thống
         await initSystem();
         
+        // Kiểm tra quyền HKD
         const user = getCurrentUser();
         if (!user || user.role !== 'hkd') {
             window.location.href = 'login.html?type=hkd';
             return;
         }
         
+        // Lấy thông tin HKD
         currentHKD = user;
         
-        await loadHKDData(); // Tải từ IndexedDB
+        // Tải dữ liệu ban đầu
+        await loadHKDData();
+        
+        // Setup event listeners
         setupHKDEventListeners();
+        
+        // Hiển thị thông tin HKD
         displayHKDInfo();
+        
+        // Hiển thị danh sách sản phẩm
         displayProducts();
+        
+        // Khởi tạo giỏ hàng
         initCart();
+        
+        // Hiển thị sidebar
         initSidebar();
-        initHKDRealtimeSync(); // Chỉ bật listener, không sync
         
-        console.log('✅ HKD page initialized');
+        console.log('HKD page initialized');
         
-        // Chỉ sync nếu dữ liệu trống HOẶC cần cập nhật
+        // Khởi tạo realtime sync
+        initHKDRealtimeSync();
+        
+        // Kiểm tra dữ liệu từ Firebase (đồng bộ 2 chiều)
         if (navigator.onLine) {
-            // Đợi một chút để listener hoạt động
             setTimeout(async () => {
-                // Kiểm tra nếu dữ liệu local trống
-                const localProducts = await getProductsByHKD(currentHKD.id);
-                const localCategories = await getCategoriesByHKD(currentHKD.id);
-                
-                if (localProducts.length === 0 || localCategories.length === 0) {
-                    console.log('📭 Dữ liệu local trống, thực hiện sync...');
-                    await syncFromFirebase(); // Sync một lần duy nhất
-                    await loadHKDData();
-                    displayProducts();
-                } else {
-                    console.log('📊 Dữ liệu local đã có, không cần sync');
-                }
-            }, 1500);
+                await syncFromFirebase();
+                await loadHKDData(); // Tải lại dữ liệu mới
+                displayProducts();
+            }, 2000);
         }
         
     } catch (error) {
-        console.error('❌ Lỗi khởi tạo HKD page:', error);
+        console.error('Lỗi khởi tạo HKD page:', error);
         Utils.showToast('Lỗi khởi tạo hệ thống', 'error');
     }
 }
 
-
+// Khởi tạo realtime sync cho HKD
 function initHKDRealtimeSync() {
+    console.log('🔔 Khởi tạo realtime sync cho HKD...');
     
- // Chỉ bật realtime listener
-    listenForHKDRealtimeUpdates2();
+    // Lắng nghe thay đổi kết nối mạng
+    window.addEventListener('online', handleHKDConnectionChange);
+    window.addEventListener('offline', handleHKDConnectionChange);
     
-    console.log('✅ Đã bật realtime listener (không sync tự động)');
+    // Bắt đầu sync interval (mỗi 30 giây)
+    hkdSyncInterval = setInterval(() => {
+        if (navigator.onLine && !isSyncing) {
+            syncFromFirebase();
+        }
+    }, 30000);
+    
+    // Lắng nghe realtime updates
+    listenForHKDRealtimeUpdates();
 }
 
+// Xử lý thay đổi kết nối mạng
 function handleHKDConnectionChange() {
     if (navigator.onLine) {
         console.log('🌐 HKD đã kết nối mạng, đồng bộ dữ liệu...');
@@ -80,13 +115,16 @@ async function syncFromFirebase() {
     }
     
     isSyncing = true;
-    updateSyncStatus();
-    
     console.log('⬇️ Đồng bộ từ Firebase về IndexedDB...');
     
     try {
-        await syncHKDDataFromFirebase(currentHKD.id);
+        // THAY VÌ gọi các hàm riêng lẻ, gọi hàm mới tổng hợp
+        await syncHKDDataFromFirebase(currentHKD.id); // ← Hàm vừa sửa
+        
+        // Tải lại dữ liệu local
         await loadHKDData();
+        
+        // Cập nhật UI
         displayProducts();
         updateCategoryList();
         
@@ -98,51 +136,48 @@ async function syncFromFirebase() {
         Utils.showToast('Lỗi đồng bộ dữ liệu', 'error');
     } finally {
         isSyncing = false;
-        updateSyncStatus();
     }
 }
 
-async function syncHKDDataFromFirebase(hkdId) {
+// Đồng bộ thông tin HKD từ Firebase
+async function syncHKDInfoFromFirebase() {
     try {
         await initFirebase();
         
-        // Sync HKD info
-        const hkdRef = firebase.database().ref(`hkds/${hkdId}/info`);
-        const hkdSnapshot = await hkdRef.once('value');
-        const hkdData = hkdSnapshot.val();
+        const hkdRef = firebase.database().ref(`hkds/${currentHKD.id}/info`);
+        const snapshot = await hkdRef.once('value');
+        const hkdData = snapshot.val();
         
         if (hkdData) {
-            const localHKD = await getFromStore(STORES.HKDS, hkdId);
+            // Kiểm tra xem có cần cập nhật không
+            const localHKD = await getFromStore(STORES.HKDS, currentHKD.id);
+            
             if (!localHKD || new Date(hkdData.lastUpdated) > new Date(localHKD.lastUpdated)) {
-                await updateInStore(STORES.HKDS, {
+                // Cập nhật thông tin HKD
+                const updatedHKD = {
                     ...localHKD,
                     ...hkdData,
-                    id: hkdId,
+                    id: currentHKD.id,
                     role: 'hkd'
-                });
+                };
                 
+                await updateInStore(STORES.HKDS, updatedHKD);
+                
+                // Cập nhật currentHKD nếu cần
                 if (hkdData.name !== currentHKD.name) {
                     currentHKD = updatedHKD;
                     displayHKDInfo();
                 }
+                
+                console.log('✅ Đã cập nhật thông tin HKD');
             }
         }
-        
-        // Sync categories
-        await syncCategoriesFromFirebase();
-        
-        // Sync products
-        await syncProductsFromFirebase();
-        
-        // Sync invoices
-        await syncInvoicesFromFirebase();
-        
     } catch (error) {
-        console.error('❌ Lỗi sync toàn bộ dữ liệu HKD:', error);
-        throw error;
+        console.error('❌ Lỗi sync HKD info:', error);
     }
 }
 
+// Sửa hàm syncCategoriesFromFirebase trong hkd.js
 async function syncCategoriesFromFirebase() {
     try {
         await initFirebase();
@@ -156,31 +191,40 @@ async function syncCategoriesFromFirebase() {
             let deletedCount = 0;
             
             for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+                // Chỉ lấy danh mục (không lấy sản phẩm)
                 if (categoryData && categoryData.name && !categoryData.msp) {
+                    
+                    // Kiểm tra nếu danh mục đã bị xóa trên Firebase
                     if (categoryData._deleted === true) {
+                        // Xóa khỏi IndexedDB - QUAN TRỌNG: không thêm vào sync queue
                         await deleteFromStore(STORES.CATEGORIES, categoryId);
                         
+                        // Đồng thời xóa TẤT CẢ sản phẩm trong danh mục này
                         const productsInCategory = await getProductsByCategory(currentHKD.id, categoryId);
                         for (const product of productsInCategory) {
                             await deleteFromStore(STORES.PRODUCTS, product.id);
                         }
                         
                         deletedCount++;
+                        console.log(`🗑️ Đã xóa danh mục ${categoryId} và sản phẩm liên quan (từ Firebase)`);
                         continue;
                     }
                     
                     const localCategory = await getFromStore(STORES.CATEGORIES, categoryId);
+                    
+                    // Nếu đây là thao tác xóa từ Admin, KHÔNG được ghi đè ngược
                     if (localCategory && localCategory._deleted === true) {
                         console.log(`⚠️ Bỏ qua danh mục ${categoryId} - đã bị xóa bởi Admin`);
                         continue;
                     }
                     
+                    // Kiểm tra xem có cần cập nhật không
                     if (!localCategory || new Date(categoryData.lastUpdated) > new Date(localCategory.lastUpdated)) {
                         await updateInStore(STORES.CATEGORIES, {
                             ...categoryData,
                             id: categoryId,
                             hkdId: currentHKD.id,
-                            _isFromFirebase: true
+                            _isFromFirebase: true // Đánh dấu là từ Firebase
                         });
                         updatedCount++;
                     }
@@ -196,6 +240,7 @@ async function syncCategoriesFromFirebase() {
     }
 }
 
+// Sửa hàm syncProductsFromFirebase
 async function syncProductsFromFirebase() {
     try {
         await initFirebase();
@@ -209,27 +254,36 @@ async function syncProductsFromFirebase() {
             let deletedCount = 0;
             
             for (const [categoryId, categoryOrProducts] of Object.entries(categoriesData)) {
+                // Duyệt qua tất cả items trong danh mục
                 for (const [itemId, itemData] of Object.entries(categoryOrProducts)) {
+                    // Nếu có msp => đây là sản phẩm
                     if (itemData && itemData.msp) {
+                        
+                        // Kiểm tra nếu sản phẩm đã bị xóa trên Firebase
                         if (itemData._deleted === true) {
+                            // Xóa khỏi IndexedDB - KHÔNG thêm vào sync queue
                             await deleteFromStore(STORES.PRODUCTS, itemId);
                             deletedCount++;
+                            console.log(`🗑️ Đã xóa sản phẩm ${itemId} (từ Firebase)`);
                             continue;
                         }
                         
                         const localProduct = await getFromStore(STORES.PRODUCTS, itemId);
+                        
+                        // Nếu đây là thao tác xóa từ Admin, KHÔNG được ghi đè ngược
                         if (localProduct && localProduct._deleted === true) {
                             console.log(`⚠️ Bỏ qua sản phẩm ${itemId} - đã bị xóa bởi Admin`);
                             continue;
                         }
                         
+                        // Kiểm tra xem có cần cập nhật không
                         if (!localProduct || new Date(itemData.lastUpdated) > new Date(localProduct.lastUpdated)) {
                             await updateInStore(STORES.PRODUCTS, {
                                 ...itemData,
                                 id: itemId,
                                 hkdId: currentHKD.id,
                                 categoryId: categoryId,
-                                _isFromFirebase: true
+                                _isFromFirebase: true // Đánh dấu là từ Firebase
                             });
                             updatedCount++;
                         }
@@ -246,6 +300,46 @@ async function syncProductsFromFirebase() {
     }
 }
 
+// Thêm hàm kiểm tra trước khi lưu
+async function saveProductWithCheck(productData) {
+    try {
+        // Kiểm tra xem sản phẩm này có bị xóa trên Firebase không
+        await initFirebase();
+        
+        const productRef = firebase.database().ref(`hkds/${currentHKD.id}/categories/${productData.categoryId}/${productData.id}`);
+        const snapshot = await productRef.once('value');
+        const firebaseProduct = snapshot.val();
+        
+        if (firebaseProduct && firebaseProduct._deleted === true) {
+            console.log(`⚠️ Sản phẩm ${productData.id} đã bị xóa bởi Admin, không được tạo lại`);
+            Utils.showToast('Sản phẩm đã bị xóa bởi Admin', 'error');
+            return false;
+        }
+        
+        // Lưu vào IndexedDB
+        await saveProduct(productData);
+        
+        // CHỈ thêm vào sync queue nếu KHÔNG có flag _isFromFirebase
+        if (!productData._isFromFirebase) {
+            if (typeof window.addToSyncQueue === 'function') {
+                await window.addToSyncQueue({
+                    type: 'products',
+                    data: productData
+                });
+            }
+        }
+        
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Lỗi kiểm tra và lưu sản phẩm:', error);
+        return false;
+    }
+}
+
+
+
+// Đồng bộ hóa đơn từ Firebase
 async function syncInvoicesFromFirebase() {
     try {
         await initFirebase();
@@ -259,13 +353,19 @@ async function syncInvoicesFromFirebase() {
             let deletedCount = 0;
             
             for (const [invoiceId, invoiceData] of Object.entries(invoicesData)) {
+                
+                // Kiểm tra nếu hóa đơn đã bị xóa trên Firebase
                 if (invoiceData._deleted === true) {
+                    // Xóa khỏi IndexedDB
                     await deleteFromStore(STORES.INVOICES, invoiceId);
                     deletedCount++;
+                    console.log(`🗑️ Đã xóa hóa đơn ${invoiceId} (từ Firebase)`);
                     continue;
                 }
                 
                 const localInvoice = await getFromStore(STORES.INVOICES, invoiceId);
+                
+                // Kiểm tra xem có cần cập nhật không
                 if (!localInvoice || new Date(invoiceData.lastUpdated) > new Date(localInvoice.lastUpdated)) {
                     await updateInStore(STORES.INVOICES, {
                         ...invoiceData,
@@ -284,8 +384,89 @@ async function syncInvoicesFromFirebase() {
         console.error('❌ Lỗi sync invoices:', error);
     }
 }
-
-async function listenForHKDRealtimeUpdates2() {
+// Hàm thiết lập listener cho sản phẩm trong một danh mục cụ thể
+async function setupProductListenersForCategory(categoryId) {
+    console.log(`🎧 Thiết lập product listeners cho danh mục ${categoryId}`);
+    
+    try {
+        await initFirebase();
+        
+        const productsRef = firebase.database().ref(
+            `hkds/${currentHKD.id}/categories/${categoryId}/products`
+        );
+        
+        // a) Khi hàng hóa bị xóa
+        productsRef.on('child_removed', async (snapshot) => {
+            const productId = snapshot.key;
+            console.log(`🗑️ [REALTIME] Sản phẩm ${productId} đã bị xóa từ Admin`);
+            
+            // Xóa khỏi IndexedDB
+            await deleteFromStore(STORES.PRODUCTS, productId);
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast('Sản phẩm đã bị xóa', 'warning');
+        });
+        
+        // b) Khi hàng hóa thay đổi
+        productsRef.on('child_changed', async (snapshot) => {
+            const productId = snapshot.key;
+            const productData = snapshot.val();
+            
+            console.log(`🔄 [REALTIME] Sản phẩm ${productId} đã thay đổi:`, productData?.name);
+            
+            // Cập nhật sản phẩm
+            await updateInStore(STORES.PRODUCTS, {
+                id: productId,
+                hkdId: currentHKD.id,
+                categoryId: categoryId,
+                ...productData,
+                _synced: true
+            });
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast(`Sản phẩm "${productData.name}" đã được cập nhật`, 'info');
+        });
+        
+        // c) Khi có hàng hóa mới
+        productsRef.on('child_added', async (snapshot) => {
+            const productId = snapshot.key;
+            const productData = snapshot.val();
+            
+            console.log(`🆕 [REALTIME] Sản phẩm mới ${productId}:`, productData?.name);
+            
+            // Thêm sản phẩm mới
+            await updateInStore(STORES.PRODUCTS, {
+                id: productId,
+                hkdId: currentHKD.id,
+                categoryId: categoryId,
+                ...productData,
+                _synced: true
+            });
+            
+            // Cập nhật UI
+            await loadHKDData();
+            displayProducts();
+            
+            Utils.showToast(`Sản phẩm mới: "${productData.name}"`, 'success');
+        });
+        
+        console.log(`✅ Đã thiết lập product listeners cho danh mục ${categoryId}`);
+        
+        // Lưu reference để cleanup sau
+        if (!window.productListeners) window.productListeners = [];
+        window.productListeners.push(productsRef);
+        
+    } catch (error) {
+        console.error(`❌ Lỗi thiết lập listener cho danh mục ${categoryId}:`, error);
+    }
+}
+async function listenForHKDRealtimeUpdates() {
     console.log('🎧 Bắt đầu lắng nghe realtime updates cho HKD...');
     
     if (!navigator.onLine) {
@@ -296,14 +477,18 @@ async function listenForHKDRealtimeUpdates2() {
     try {
         await initFirebase();
         
+        // ==================== 1. LẮNG NGHE DANH MỤC ====================
         const categoriesRef = firebase.database().ref(`hkds/${currentHKD.id}/categories`);
         
+        // a) Khi danh mục bị xóa (Admin xóa danh mục)
         categoriesRef.on('child_removed', async (snapshot) => {
             const categoryId = snapshot.key;
-            //console.log(`🗑️ [REALTIME] Danh mục ${categoryId} đã bị xóa từ Admin`);
+            console.log(`🗑️ [REALTIME] Danh mục ${categoryId} đã bị xóa từ Admin`);
             
+            // Xóa danh mục khỏi IndexedDB
             await deleteFromStore(STORES.CATEGORIES, categoryId);
             
+            // Xóa TẤT CẢ sản phẩm trong danh mục này
             const products = await getProductsByHKD(currentHKD.id);
             const categoryProducts = products.filter(p => p.categoryId === categoryId);
             
@@ -311,8 +496,9 @@ async function listenForHKDRealtimeUpdates2() {
                 await deleteFromStore(STORES.PRODUCTS, product.id);
             }
             
-            //console.log(`✅ Đã xóa ${categoryProducts.length} sản phẩm trong danh mục`);
+            console.log(`✅ Đã xóa ${categoryProducts.length} sản phẩm trong danh mục`);
             
+            // Cập nhật UI
             await loadHKDData();
             displayProducts();
             updateCategoryList();
@@ -320,12 +506,28 @@ async function listenForHKDRealtimeUpdates2() {
             Utils.showToast(`Đã xóa danh mục (${categoryProducts.length} sản phẩm)`, 'warning');
         });
         
+        // ==================== 2. LẮNG NGHE HÀNG HÓA TRONG TỪNG DANH MỤC ====================
+        // Lấy tất cả danh mục hiện có và lắng nghe từng danh mục
+        const categoriesSnapshot = await categoriesRef.once('value');
+        const categoriesData = categoriesSnapshot.val();
+        
+        if (categoriesData) {
+            for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
+                if (!categoryData || !categoryData.name) continue;
+                
+                // Lắng nghe sản phẩm trong danh mục này
+                await setupProductListenersForCategory(categoryId);
+            }
+        }
+        
+        // ==================== 3. LẮNG NGHE DANH MỤC MỚI ĐỂ THIẾT LẬP LISTENER CHO NÓ ====================
         categoriesRef.on('child_added', async (snapshot) => {
             const categoryId = snapshot.key;
             const categoryData = snapshot.val();
             
             console.log(`🆕 [REALTIME] Danh mục mới ${categoryId}: "${categoryData?.name}"`);
             
+            // Thêm danh mục
             await updateInStore(STORES.CATEGORIES, {
                 id: categoryId,
                 hkdId: currentHKD.id,
@@ -336,21 +538,15 @@ async function listenForHKDRealtimeUpdates2() {
                 _synced: true
             });
             
+            // Thiết lập listener cho sản phẩm trong danh mục mới
             await setupProductListenersForCategory(categoryId);
+            
+            // Cập nhật UI
             await loadHKDData();
             updateCategoryList();
             
+            Utils.showToast(`Danh mục mới: "${categoryData.name}"`, 'success');
         });
-        
-        const categoriesSnapshot = await categoriesRef.once('value');
-        const categoriesData = categoriesSnapshot.val();
-        
-        if (categoriesData) {
-            for (const [categoryId, categoryData] of Object.entries(categoriesData)) {
-                if (!categoryData || !categoryData.name) continue;
-                await setupProductListenersForCategory(categoryId);
-            }
-        }
         
         console.log('✅ Đã bật realtime listener cho HKD');
         
@@ -359,104 +555,220 @@ async function listenForHKDRealtimeUpdates2() {
     }
 }
 
-async function setupProductListenersForCategory(categoryId) {
+// Force sync từ Firebase
+async function forceSync() {
+    if (isSyncing) {
+        console.log('🔄 Đang sync, bỏ qua...');
+        return;
+    }
+    
+    Utils.showLoading('Đang đồng bộ dữ liệu...');
+    
     try {
-        await initFirebase();
-        
-        const productsRef = firebase.database().ref(
-            `hkds/${currentHKD.id}/categories/${categoryId}/products`
-        );
-        
-        productsRef.on('child_removed', async (snapshot) => {
-            const productId = snapshot.key;
-           //console.log(`🗑️ [REALTIME] Sản phẩm ${productId} đã bị xóa từ Admin`);
-            
-            await deleteFromStore(STORES.PRODUCTS, productId);
-            await loadHKDData();
-            displayProducts();
-            
-            Utils.showToast('Sản phẩm đã bị xóa', 'warning');
-        });
-        
-        productsRef.on('child_changed', async (snapshot) => {
-            const productId = snapshot.key;
-            const productData = snapshot.val();
-            
-            console.log(`🔄 [REALTIME] Sản phẩm ${productId} đã thay đổi:`, productData?.name);
-            
-            await updateInStore(STORES.PRODUCTS, {
-                id: productId,
-                hkdId: currentHKD.id,
-                categoryId: categoryId,
-                ...productData,
-                _synced: true
-            });
-            
-            await loadHKDData();
-            displayProducts();
-            
-            Utils.showToast(`Sản phẩm "${productData.name}" đã được cập nhật`, 'info');
-        });
-        
-        productsRef.on('child_added', async (snapshot) => {
-            const productId = snapshot.key;
-            const productData = snapshot.val();
-            
-            //console.log(`🆕 [REALTIME] Sản phẩm mới ${productId}:`, productData?.name);
-            
-            await updateInStore(STORES.PRODUCTS, {
-                id: productId,
-                hkdId: currentHKD.id,
-                categoryId: categoryId,
-                ...productData,
-                _synced: true
-            });
-            
-            await loadHKDData();
-            displayProducts();
-            
-        });
-        
-        //console.log(`✅ Đã thiết lập product listeners cho danh mục ${categoryId}`);
+        await syncFromFirebase();
+        Utils.showToast('Đồng bộ hoàn tất', 'success');
         
     } catch (error) {
-        //console.error(`❌ Lỗi thiết lập listener cho danh mục ${categoryId}:`, error);
+        console.error('❌ Lỗi force sync:', error);
+        Utils.showToast('Lỗi đồng bộ', 'error');
+    } finally {
+        Utils.hideLoading();
     }
 }
 
-// ========== DATA MANAGEMENT FUNCTIONS ==========
+// Dọn dẹp khi page unload
+function cleanupHKD() {
+    if (hkdSyncInterval) {
+        clearInterval(hkdSyncInterval);
+    }
+    
+    window.removeEventListener('online', handleHKDConnectionChange);
+    window.removeEventListener('offline', handleHKDConnectionChange);
+    
+    console.log('🧹 Đã dọn dẹp HKD sync');
+}
+
+
+// Tải dữ liệu HKD
 async function loadHKDData() {
     Utils.showLoading('Đang tải dữ liệu...');
     
     try {
+        // Tải sản phẩm
         products = await getProductsByHKD(currentHKD.id);
+        
+        // Tải danh mục
         categories = await getCategoriesByHKD(currentHKD.id);
+        
+        // Tải lịch sử hóa đơn
         invoiceHistory = await getInvoicesByHKD(currentHKD.id);
         invoiceHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
         
+        // Cập nhật danh mục trong sidebar
         updateCategoryList();
         
     } catch (error) {
-        console.error('❌ Lỗi tải dữ liệu HKD:', error);
+        console.error('Lỗi tải dữ liệu HKD:', error);
         Utils.showToast('Lỗi tải dữ liệu', 'error');
     } finally {
         Utils.hideLoading();
     }
 }
 
+// Thiết lập event listeners
+function setupHKDEventListeners() {
+    // Sidebar toggle
+    document.getElementById('menuToggle').addEventListener('click', toggleSidebar);
+    
+    // Category filter
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('category-filter')) {
+            filterProductsByCategory(e.target.dataset.category);
+        }
+    });
+    
+    // Product click
+    document.getElementById('productGrid').addEventListener('click', (e) => {
+        const productCard = e.target.closest('.product-card');
+        if (productCard) {
+            const productId = productCard.dataset.productId;
+            addToCart(productId);
+        }
+    });
+    
+    // Cart actions
+    document.getElementById('clearCart').addEventListener('click', clearCart);
+    document.getElementById('createInvoice').addEventListener('click', createInvoice);
+    
+    // Invoice history
+    document.getElementById('viewHistory').addEventListener('click', showInvoiceHistory);
+    document.getElementById('viewRevenue').addEventListener('click', showRevenueReport);
+    
+    // Customer name input
+    document.getElementById('customerName').addEventListener('input', (e) => {
+        updateCartSummary();
+    });
+    
+    // Close sidebar khi click outside
+    document.addEventListener('click', (e) => {
+        const sidebar = document.getElementById('sidebar');
+        const menuToggle = document.getElementById('menuToggle');
+        
+        if (sidebar.classList.contains('active') &&
+            !sidebar.contains(e.target) &&
+            !menuToggle.contains(e.target)) {
+            toggleSidebar();
+        }
+    });
+}
+
+// Hiển thị thông tin HKD
 function displayHKDInfo() {
     document.getElementById('hkdName').textContent = currentHKD.name;
     document.getElementById('hkdNameMobile').textContent = currentHKD.name;
+}
+// Thêm vào hkd.js
+function updateSyncStatus() {
+    const syncStatusEl = document.getElementById('syncStatus');
+    if (!syncStatusEl) return;
+    
+    if (navigator.onLine) {
+        if (isSyncing) {
+            syncStatusEl.className = 'sync-status syncing';
+            syncStatusEl.innerHTML = '<i class="fas fa-sync fa-spin"></i> <span>Đang đồng bộ...</span>';
+        } else {
+            syncStatusEl.className = 'sync-status';
+            syncStatusEl.innerHTML = '<i class="fas fa-wifi"></i> <span>Đã kết nối</span>';
+        }
+    } else {
+        syncStatusEl.className = 'sync-status offline';
+        syncStatusEl.innerHTML = '<i class="fas fa-wifi-slash"></i> <span>Đang offline</span>';
+    }
+}
+
+// Cập nhật hàm syncFromFirebase
+async function syncFromFirebase() {
+    if (isSyncing) {
+        console.log('🔄 Đang sync, bỏ qua...');
+        return;
+    }
+    
+    isSyncing = true;
+    updateSyncStatus(); // Cập nhật trạng thái
+    
+    console.log('⬇️ Đồng bộ từ Firebase về IndexedDB...');
+    
+    try {
+        // ... phần còn lại của hàm syncFromFirebase ...
+        
+    } catch (error) {
+        console.error('❌ Lỗi đồng bộ từ Firebase:', error);
+    } finally {
+        isSyncing = false;
+        updateSyncStatus(); // Cập nhật trạng thái
+    }
+}
+// Sửa hàm initSidebar để thêm nút sync
+function initSidebar() {
+    // Thêm các menu item
+    const menuItems = [
+        { id: 'dashboard', icon: 'fa-home', text: 'Bán hàng', action: () => showDashboard() },
+        { id: 'history', icon: 'fa-history', text: 'Lịch sử', action: () => showInvoiceHistory() },
+        { id: 'revenue', icon: 'fa-chart-line', text: 'Doanh thu', action: () => showRevenueReport() },
+        { id: 'products', icon: 'fa-boxes', text: 'Sản phẩm', action: () => showAllProducts() },
+        { id: 'sync', icon: 'fa-sync-alt', text: 'Đồng bộ', action: () => forceSync() },
+        { id: 'logout', icon: 'fa-sign-out-alt', text: 'Đăng xuất', action: () => logout() }
+    ];
+    
+    const menuContainer = document.getElementById('sidebarMenu');
+    menuContainer.innerHTML = menuItems.map(item => `
+        <div class="menu-item" onclick="${item.action.toString().replace(/"/g, '&quot;')}">
+            <i class="fas ${item.icon}"></i>
+            <span>${item.text}</span>
+        </div>
+    `).join('');
+}
+// Hiển thị trang quản lý của HKD
+function showAllManagement() {
+    console.log('📋 Hiển thị trang quản lý HKD');
+    
+    // Tạo modal hoặc mở trang quản lý
+    const modal = new bootstrap.Modal(document.getElementById('hkdManagementModal'));
+    
+    // Load danh mục và sản phẩm vào modal
+    loadHKDManagementData();
+    
+    modal.show();
+}
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('active');
+    
+    // Toggle overlay
+    const overlay = document.getElementById('sidebarOverlay');
+    if (overlay) {
+        overlay.classList.toggle('active');
+    } else {
+        // Tạo overlay nếu chưa có
+        const newOverlay = document.createElement('div');
+        newOverlay.id = 'sidebarOverlay';
+        newOverlay.className = 'sidebar-overlay';
+        newOverlay.onclick = toggleSidebar;
+        document.body.appendChild(newOverlay);
+        setTimeout(() => newOverlay.classList.add('active'), 10);
+    }
 }
 
 function updateCategoryList() {
     const categoryContainer = document.getElementById('categoryList');
     if (!categoryContainer) return;
     
+    // Tạo unique categories từ products theo cấu trúc mới
     const uniqueCategoryIds = [...new Set(products
         .map(p => p.categoryId)
         .filter(Boolean))];
     
+    // Lấy tên danh mục từ categories array
     const productCategories = uniqueCategoryIds
         .map(categoryId => {
             const category = categories.find(c => c.id === categoryId);
@@ -464,11 +776,13 @@ function updateCategoryList() {
         })
         .filter(Boolean);
     
+    // Kết hợp với danh sách categories từ database
     const allCategories = ['Tất cả', ...new Set([
         ...categories.map(c => c.name),
         ...productCategories
     ])];
     
+    // Render category filters
     categoryContainer.innerHTML = allCategories.map(cat => `
         <button class="category-filter ${cat === 'Tất cả' ? 'active' : ''}" 
                 data-category="${cat}">
@@ -484,13 +798,25 @@ function displayProducts(category = 'Tất cả') {
     let filteredProducts = products;
     
     if (category !== 'Tất cả') {
+        console.log(`🔍 Filtering by category: "${category}"`);
+        
+        // FILTER THEO CẤU TRÚC MỚI: product có categoryId, tìm tên từ categories array
         filteredProducts = products.filter(product => {
             if (!product || !product.categoryId) return false;
-            const productCategory = categories.find(c => c && c.id === product.categoryId);
+            
+            // Tìm tên danh mục từ categoryId
+            const productCategory = categories.find(c => 
+                c && c.id === product.categoryId
+            );
+            
+            // So sánh tên danh mục
             return productCategory && productCategory.name === category;
         });
+        
+        console.log(`📊 Found ${filteredProducts.length} products for category "${category}"`);
     }
     
+    // Hiển thị sản phẩm
     if (filteredProducts.length === 0) {
         productGrid.innerHTML = `
             <div class="no-products">
@@ -502,60 +828,162 @@ function displayProducts(category = 'Tất cả') {
     }
     
     productGrid.innerHTML = filteredProducts.map(product => {
-    const cartQuantity = getCartQuantity(product.id);
-    const isLowStock = product.stock !== undefined && product.stock <= 5;
-
-    return `
-        <div class="product-card" data-product-id="${product.id}">
-            
-            <!-- IMAGE -->
-            <div class="product-image"></div>
-
-            <!-- INFO -->
-            <div class="product-info">
-                <div class="product-name">${product.name}</div>
-
-                <div class="product-price">
-                    ${Utils.formatCurrency(product.price)}
+        // Lấy tên danh mục để hiển thị
+        const categoryObj = categories.find(c => c.id === product.categoryId);
+        const categoryName = categoryObj ? categoryObj.name : '';
+        
+        return `
+            <div class="product-card" data-product-id="${product.id}">
+                <div class="product-info">
+                    <div class="product-name">${product.name}</div>
+                    <div class="product-details">
+                        <span class="product-price">${Utils.formatCurrency(product.price)}</span>
+                        <span class="product-unit">/${product.unit}</span>
+                    </div>
+                    ${product.stock !== undefined ? 
+                        `<div class="product-stock">Còn: ${product.stock}</div>` : 
+                        `<div class="product-stock">Không giới hạn</div>`
+                    }
+                    ${categoryName ? `<div class="product-category-badge">${categoryName}</div>` : ''}
                 </div>
-
-                <div class="product-meta ${isLowStock ? 'low-stock' : ''}">
-                    <span>
-                        ${
-                            product.stock !== undefined
-                                ? `Còn ${product.stock} - ${product.unit}`
-                                : `Không giới hạn - ${product.unit}`
-                        }
-                    </span>
+                <div class="product-cart">
+                    <span class="quantity-value">${getCartQuantity(product.id)}</span>
+                    <button class="btn-add-cart">
+                        <i class="fas fa-plus"></i>
+                    </button>
                 </div>
             </div>
-
-            <!-- CONTROLS -->
-            <div class="product-controls">
-                <button 
-                    class="btn-decrease" 
-                    onclick="removeFromCart('${product.id}')">
-                    <i class="fas fa-minus"></i>
-                </button>
-
-                <span class="quantity-display ${cartQuantity > 0 ? 'active' : ''}">
-                    ${cartQuantity > 0 ? cartQuantity : ''}
-                </span>
-
-                <button 
-                    class="btn-increase" 
-                    onclick="addToCart('${product.id}')">
-                    <i class="fas fa-plus"></i>
-                </button>
-            </div>
-
-        </div>
-    `;
-}).join('');
-
+        `;
+    }).join('');
 }
 
+async function editHKDProduct(productId) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    // Điền dữ liệu vào form
+    document.getElementById('hkdProductCode').value = product.msp || '';
+    document.getElementById('hkdProductName').value = product.name || '';
+    document.getElementById('hkdProductUnit').value = product.unit || 'cái';
+    document.getElementById('hkdProductPrice').value = product.price || 0;
+    document.getElementById('hkdProductStock').value = product.stock || 0;
+    document.getElementById('hkdProductDescription').value = product.description || '';
+    
+    // Load danh mục và chọn đúng
+    const categorySelect = document.getElementById('hkdProductCategory');
+    categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
+    
+    categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category.id;
+        option.textContent = category.name;
+        if (category.id === product.categoryId) {
+            option.selected = true;
+        }
+        categorySelect.appendChild(option);
+    });
+    
+    // Lưu ID sản phẩm đang sửa
+    document.getElementById('hkdProductModal').dataset.editId = productId;
+    document.querySelector('#hkdProductModal .modal-title').textContent = 'Sửa hàng hóa';
+    
+    const modal = new bootstrap.Modal(document.getElementById('hkdProductModal'));
+    modal.show();
+}
+async function deleteHKDProduct(productId) {
+    const confirmed = await Utils.confirm('Bạn có chắc muốn xóa sản phẩm này?');
+    if (!confirmed) return;
+    
+    Utils.showLoading('Đang xóa...');
+    
+    try {
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        
+        // 1. Xóa khỏi IndexedDB
+        await deleteFromStore(STORES.PRODUCTS, productId);
+        
+        // 2. Cập nhật UI ngay
+        products = products.filter(p => p.id !== productId);
+        displayProducts();
+        
+        Utils.showToast('Đã xóa sản phẩm', 'success');
+        
+        // 3. Sync xóa lên Firebase
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                const productRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${product.categoryId}/products/${productId}`
+                );
+                
+                // Soft delete
+                await productRef.update({
+                    _deleted: true,
+                    _deletedAt: new Date().toISOString(),
+                    lastUpdated: new Date().toISOString()
+                });
+                
+                console.log('✅ HKD đã xóa sản phẩm trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync delete:', firebaseError);
+                await addToSyncQueue({
+                    type: 'products_delete',
+                    data: {
+                        id: productId,
+                        hkdId: currentHKD.id,
+                        categoryId: product.categoryId
+                    }
+                });
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('❌ Lỗi xóa sản phẩm:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
+    } finally {
+        Utils.hideLoading();
+    }
+}
+function getCategoryNameById(categoryId) {
+    if (!categoryId || !categories) return '';
+    const category = categories.find(c => c && c.id === categoryId);
+    return category ? category.name : '';
+}
+
+// Thêm hàm debug để xem dữ liệu
+function debugProductCategories() {
+    console.log('=== DEBUG PRODUCT CATEGORIES ===');
+    console.log(`📊 Total products: ${products.length}`);
+    console.log(`📊 Total categories: ${categories.length}`);
+    
+    products.forEach((product, index) => {
+        const categoryName = getCategoryNameById(product.categoryId);
+        console.log(`  Product ${index + 1}:`, {
+            name: product.name,
+            categoryId: product.categoryId,
+            categoryName: categoryName,
+            hasCategoryField: !!product.category,
+            categoryField: product.category
+        });
+    });
+    
+    categories.forEach((category, index) => {
+        console.log(`  Category ${index + 1}:`, {
+            id: category.id,
+            name: category.name,
+            hkdId: category.hkdId
+        });
+    });
+}
+
+// Thêm vào window để debug
+window.debugProductCategories = debugProductCategories;
+
 function filterProductsByCategory(category) {
+    // Update active button
     document.querySelectorAll('.category-filter').forEach(btn => {
         btn.classList.remove('active');
     });
@@ -565,11 +993,13 @@ function filterProductsByCategory(category) {
         activeBtn.classList.add('active');
     }
     
+    // Display filtered products
     displayProducts(category);
 }
 
-// ========== CART MANAGEMENT ==========
+// Giỏ hàng
 function initCart() {
+    // Load cart from localStorage
     const savedCart = localStorage.getItem(`cart_${currentHKD.id}`);
     if (savedCart) {
         cart = JSON.parse(savedCart);
@@ -582,41 +1012,6 @@ function getCartQuantity(productId) {
     return item ? item.quantity : 0;
 }
 
-// Thêm vào trong hàm updateCartDisplay() hoặc tạo hàm mới
-function updateProductCardState(productId) {
-    const productCard = document.querySelector(`.product-card[data-product-id="${productId}"]`);
-    if (!productCard) return;
-    
-    const cartQuantity = getCartQuantity(productId);
-    const product = products.find(p => p.id === productId);
-    
-    // Cập nhật class
-    if (cartQuantity > 0) {
-        productCard.classList.add('in-cart');
-    } else {
-        productCard.classList.remove('in-cart');
-    }
-    
-    // Cập nhật số lượng
-    const quantityDisplay = productCard.querySelector('.quantity-display');
-    if (quantityDisplay) {
-        quantityDisplay.textContent = cartQuantity > 0 ? cartQuantity : '';
-        quantityDisplay.classList.toggle('active', cartQuantity > 0);
-    }
-    
-    // Cập nhật trạng thái nút
-    const decreaseBtn = productCard.querySelector('.btn-decrease');
-    if (decreaseBtn) {
-        decreaseBtn.disabled = cartQuantity === 0;
-    }
-    
-    const increaseBtn = productCard.querySelector('.btn-increase');
-    if (increaseBtn && product) {
-        increaseBtn.disabled = product.stock !== undefined && cartQuantity >= product.stock;
-    }
-}
-
-// Cập nhật trong hàm addToCart và removeFromCart
 function addToCart(productId) {
     const product = products.find(p => p.id === productId);
     if (!product) return;
@@ -624,12 +1019,14 @@ function addToCart(productId) {
     const existingItem = cart.find(item => item.productId === productId);
     
     if (existingItem) {
+        // Kiểm tra tồn kho nếu có
         if (product.stock && existingItem.quantity >= product.stock) {
             Utils.showToast('Đã đạt giới hạn tồn kho', 'warning');
             return;
         }
         existingItem.quantity += 1;
     } else {
+        // Kiểm tra tồn kho
         if (product.stock && product.stock <= 0) {
             Utils.showToast('Sản phẩm đã hết hàng', 'warning');
             return;
@@ -647,9 +1044,14 @@ function addToCart(productId) {
         });
     }
     
+    // Update UI
     updateCartDisplay();
-    updateProductCardState(productId); // ← CẬP NHẬT
+    updateProductQuantity(productId);
+    
+    // Play sound
     playAddToCartSound();
+    
+    // Save cart
     saveCart();
 }
 
@@ -665,59 +1067,27 @@ function removeFromCart(productId) {
     }
     
     updateCartDisplay();
-    updateProductCardState(productId); // ← CẬP NHẬT
+    updateProductQuantity(productId);
     saveCart();
 }
 
-/**
- * Hàm xóa giỏ hàng
- * @param {boolean} showConfirm - Có hiển thị hộp thoại xác nhận hay không
- */
-function clearCart(showConfirm = true) {
-    if (showConfirm) {
-        const confirmed = confirm('Bạn có chắc chắn muốn xóa toàn bộ giỏ hàng?');
-        if (!confirmed) return;
-    }
+function clearCart() {
+    const confirmed =  Utils.confirm('Bạn có chắc chắn muốn xóa giỏ hàng?');
+    if (!confirmed) return;
     
-    // 1. Làm trống mảng giỏ hàng
     cart = [];
-    
-    // 2. Cập nhật hiển thị giỏ hàng chính (ngoài màn hình bán hàng)
     updateCartDisplay();
     
-    // 3. Cập nhật lại số lượng hiển thị trên các thẻ sản phẩm (về 0)
+    // Reset product quantities
     document.querySelectorAll('.product-card').forEach(card => {
-        const productId = card.getAttribute('data-id'); // Kiểm tra lại dataset.productId hay data-id tùy code bạn
-        if (productId) {
-            updateProductQuantity(productId);
-        }
+        const productId = card.dataset.productId;
+        updateProductQuantity(productId);
     });
     
-    // 4. Lưu trạng thái giỏ hàng trống vào LocalStorage
     saveCart();
     
-    // 5. NẾU ĐANG MỞ POPUP XÁC NHẬN -> Cập nhật hoặc đóng popup
-    const modal = document.getElementById('checkoutModal');
-    if (modal && modal.style.display === 'block') {
-        const scrollList = document.getElementById('checkoutScrollList');
-        if (scrollList) scrollList.innerHTML = ''; // Xóa danh sách trong popup
-        document.getElementById('checkoutTotalAmount').innerText = '0đ';
-        
-        // Tự động đóng popup sau khi xóa vì không còn gì để xem
-        setTimeout(() => {
-            closeCheckoutModal();
-        }, 500);
-    }
-    
-    if (showConfirm) {
-        Utils.showToast('Đã dọn dẹp giỏ hàng', 'success');
-    }
+    Utils.showToast('Đã xóa giỏ hàng', 'success');
 }
-
-// Hàm bổ trợ để dùng cho nút "Xóa giỏ" trong Popup
-window.clearCartAndClose = function() {
-    clearCart(true); // Gọi hàm gốc với xác nhận
-};
 
 function updateProductQuantity(productId) {
     const productCard = document.querySelector(`.product-card[data-product-id="${productId}"]`);
@@ -730,9 +1100,11 @@ function updateProductQuantity(productId) {
 }
 
 function updateCartDisplay() {
+    // Update cart count
     const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
     document.getElementById('cartCount').textContent = totalItems;
     
+    // Update cart items
     const cartItemsContainer = document.getElementById('cartItems');
     if (cartItemsContainer) {
         if (cart.length === 0) {
@@ -769,6 +1141,7 @@ function updateCartDisplay() {
         }
     }
     
+    // Update summary
     updateCartSummary();
 }
 
@@ -783,8 +1156,10 @@ function saveCart() {
     localStorage.setItem(`cart_${currentHKD.id}`, JSON.stringify(cart));
 }
 
+// Thay thế hàm playAddToCartSound
 function playAddToCartSound() {
     try {
+        // Tạo âm thanh đơn giản bằng Web Audio API
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
@@ -801,20 +1176,18 @@ function playAddToCartSound() {
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.1);
         
+        // Cleanup
         setTimeout(() => {
             oscillator.disconnect();
             gainNode.disconnect();
         }, 200);
     } catch (error) {
-        console.log('Audio not supported:', error.message);
+        // Silent fail - không cần xử lý
+        console.log('Audio not supported or error:', error.message);
     }
 }
 
-function calculateCartTotal() {
-    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-}
-
-// ========== INVOICE MANAGEMENT ==========
+// Tạo hóa đơn - ĐÃ SỬA ĐỂ ĐỒNG BỘ 2 CHIỀU
 async function createInvoice() {
     if (cart.length === 0) {
         Utils.showToast('Giỏ hàng trống', 'warning');
@@ -834,31 +1207,53 @@ async function createInvoice() {
     try {
         const invoiceId = Utils.generateId();
         
+        // Tạo items array với cấu trúc CHUẨN - FIX LỖI UNDEFINED
         const invoiceItems = cart.map(item => {
+            // Tìm thông tin đầy đủ của sản phẩm từ products array
             const productInfo = products.find(p => p.id === item.productId);
             
-            return {
+            // Tạo item với cấu trúc chuẩn, đảm bảo không có undefined
+            const invoiceItem = {
                 productId: item.productId || '',
                 name: item.name || productInfo?.name || 'Sản phẩm không xác định',
                 unit: item.unit || productInfo?.unit || 'cái',
                 quantity: item.quantity || 0,
                 price: item.price || productInfo?.price || 0,
                 msp: item.msp || productInfo?.msp || '',
+                
+                // QUAN TRỌNG: Lấy category từ productInfo nếu cart item không có
+                // Ưu tiên 1: Từ cart item (nếu có và không undefined)
+                // Ưu tiên 2: Từ productInfo.category (nếu có)
+                // Ưu tiên 3: Từ categoryId + categories array
+                // Ưu tiên 4: Chuỗi rỗng
                 category: (item.category !== undefined && item.category !== null) 
                     ? item.category 
                     : productInfo?.category || getCategoryNameById(productInfo?.categoryId) || '',
+                
                 description: item.description || productInfo?.description || '',
                 note: item.note || productInfo?.note || ''
             };
+            
+            console.log('📦 Invoice item created:', {
+                name: invoiceItem.name,
+                category: invoiceItem.category,
+                fromCartCategory: item.category,
+                fromProductCategory: productInfo?.category,
+                categoryId: productInfo?.categoryId,
+                categoryName: getCategoryNameById(productInfo?.categoryId)
+            });
+            
+            return invoiceItem;
         });
         
+        // Tạo invoice data
         const invoiceData = {
             id: invoiceId,
             hkdId: currentHKD.id,
             hkdName: currentHKD.name,
             customerName: customerName,
             date: new Date().toISOString(),
-            items: invoiceItems,
+            items: invoiceItems, // Sử dụng items đã được chuẩn hóa
             subtotal: calculateCartTotal(),
             tax: 0,
             discount: 0,
@@ -868,28 +1263,27 @@ async function createInvoice() {
             lastUpdated: new Date().toISOString(),
             timestamp: Date.now()
         };
-        // 1. LƯU LOCAL
+        
+        console.log('📝 Tạo invoice:', invoiceId);
+        console.log('📊 Invoice items check (no undefined):', 
+            invoiceData.items.every(item => item.category !== undefined)
+        );
+        
+        // 1. Lưu vào IndexedDB (invoices store)
         await saveInvoice(invoiceData);
-        invoiceHistory.unshift(invoiceData);
+        console.log('💾 Đã lưu invoice vào IndexedDB');
         
-        // 2. SYNC NGAY LẬP TỨC (QUAN TRỌNG)
-        // Không chờ queue, bắn thẳng lên Firebase để Admin nhận được ngay
-        if (navigator.onLine) {
-            saveInvoiceDirectToFirebase(invoiceData).catch(err => console.warn('Direct sync failed, using queue', err));
-        }
-        
-        // 3. Thêm vào queue để đảm bảo an toàn dữ liệu
-        if (typeof window.addToSyncQueue === 'function') {
-             window.addToSyncQueue({ type: 'invoices', data: invoiceData });
-        }
+        // 2. Thêm vào sync queue để đồng bộ lên Firebase
         let syncAdded = false;
         
+        // Kiểm tra các cách gọi hàm addToSyncQueue
         if (typeof window.addToSyncQueue === 'function') {
             await window.addToSyncQueue({
                 type: 'invoices',
                 data: invoiceData
             });
             syncAdded = true;
+            console.log('✅ Đã thêm vào sync queue (via window)');
         }
         else if (typeof addToSyncQueue === 'function') {
             await addToSyncQueue({
@@ -897,8 +1291,12 @@ async function createInvoice() {
                 data: invoiceData
             });
             syncAdded = true;
+            console.log('✅ Đã thêm vào sync queue (via local)');
         }
         else {
+            console.log('⚠️ Hàm addToSyncQueue không tồn tại, thử cách khác');
+            
+            // Thử lưu trực tiếp vào syncQueue
             try {
                 const db = await getDB();
                 const tx = db.transaction([STORES.SYNC_QUEUE], 'readwrite');
@@ -914,36 +1312,54 @@ async function createInvoice() {
                 
                 await store.add(syncItem);
                 syncAdded = true;
+                console.log('✅ Đã lưu trực tiếp vào syncQueue');
             } catch (syncError) {
                 console.error('❌ Lỗi lưu sync queue:', syncError);
             }
         }
         
         if (!syncAdded) {
+            // Nếu không thể lưu sync queue, thử lưu trực tiếp lên Firebase
+            console.log('🔄 Thử lưu trực tiếp lên Firebase...');
             await saveInvoiceDirectToFirebase(invoiceData);
         }
         
+        // 3. Cập nhật lịch sử local
         invoiceHistory.unshift(invoiceData);
+        
+        // 4. Giảm số lượng tồn kho (nếu có)
         await updateProductStockAfterSale();
         
+        // 5. Clear cart
         cart = [];
         updateCartDisplay();
         saveCart();
+        
+        // 6. Reset customer name
         document.getElementById('customerName').value = '';
         
+        // 7. Reset product quantities
         products.forEach(product => {
             updateProductQuantity(product.id);
         });
         
+        // 8. Show success
         Utils.showToast('Đã tạo hóa đơn thành công', 'success');
+        
+        // 9. Show invoice details
         showInvoiceReceipt(invoiceData);
         
+        // 10. Cố gắng đồng bộ ngay nếu online
         if (navigator.onLine && syncAdded) {
+            console.log('🌐 Đang online, thử đồng bộ ngay...');
+            
             setTimeout(async () => {
                 try {
+                    // Kiểm tra sync queue
                     const pendingItems = await getPendingSyncItems();
                     console.log(`📊 Sync queue có ${pendingItems.length} item pending`);
                     
+                    // Thực hiện sync
                     if (typeof window.syncToFirebase === 'function') {
                         await window.syncToFirebase();
                     } else if (typeof syncToFirebase === 'function') {
@@ -965,6 +1381,7 @@ async function createInvoice() {
     }
 }
 
+// Hàm lưu trực tiếp lên Firebase (fallback)
 async function saveInvoiceDirectToFirebase(invoiceData) {
     try {
         await initFirebase();
@@ -986,17 +1403,21 @@ async function saveInvoiceDirectToFirebase(invoiceData) {
     }
 }
 
+// Cập nhật tồn kho sau khi bán
 async function updateProductStockAfterSale() {
     try {
         for (const cartItem of cart) {
             const product = products.find(p => p.id === cartItem.productId);
             
             if (product && product.stock !== undefined) {
+                // Giảm số lượng tồn
                 product.stock = Math.max(0, product.stock - cartItem.quantity);
                 product.lastUpdated = new Date().toISOString();
                 
+                // Cập nhật trong IndexedDB
                 await saveProduct(product);
                 
+                // Thêm vào sync queue
                 if (typeof window.addToSyncQueue === 'function') {
                     await window.addToSyncQueue({
                         type: 'products',
@@ -1008,6 +1429,7 @@ async function updateProductStockAfterSale() {
             }
         }
         
+        // Cập nhật lại danh sách sản phẩm
         products = await getProductsByHKD(currentHKD.id);
         
     } catch (error) {
@@ -1015,9 +1437,14 @@ async function updateProductStockAfterSale() {
     }
 }
 
+function calculateCartTotal() {
+    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+}
+
 function showInvoiceReceipt(invoice) {
     const modal = new bootstrap.Modal(document.getElementById('invoiceReceiptModal'));
     
+    // Format receipt
     const receiptHtml = `
         <div class="receipt-header">
             <h4>HÓA ĐƠN BÁN HÀNG</h4>
@@ -1077,6 +1504,7 @@ function showInvoiceReceipt(invoice) {
     
     document.getElementById('receiptContent').innerHTML = receiptHtml;
     
+    // Print button
     document.getElementById('printReceipt').onclick = () => printReceipt(invoice);
     
     modal.show();
@@ -1122,18 +1550,12 @@ function printReceipt(invoice) {
     }, 250);
 }
 
-// ========== LỊCH SỬ ==========
+// Lịch sử hóa đơn
 function showInvoiceHistory() {
-    console.log('📜 Hiển thị lịch sử hóa đơn');
-    
-    if (!invoiceHistory || invoiceHistory.length === 0) {
-        Utils.showToast('Chưa có hóa đơn nào', 'info');
-        return;
-    }
-    
     const modal = new bootstrap.Modal(document.getElementById('historyModal'));
     
-    const historyHtml = `
+    // Display history
+    const historyHtml = invoiceHistory.length > 0 ? `
         <div class="history-list">
             ${invoiceHistory.slice(0, 20).map(invoice => `
                 <div class="history-item" onclick="viewHistoryInvoice('${invoice.id}')">
@@ -1148,15 +1570,15 @@ function showInvoiceHistory() {
                 </div>
             `).join('')}
         </div>
-        
-        ${invoiceHistory.length > 20 ? `
-            <div class="text-center mt-3">
-                <small class="text-muted">Hiển thị 20 hóa đơn gần nhất</small>
-            </div>
-        ` : ''}
+    ` : `
+        <div class="no-history">
+            <i class="fas fa-receipt"></i>
+            <p>Chưa có hóa đơn nào</p>
+        </div>
     `;
     
     document.getElementById('historyContent').innerHTML = historyHtml;
+    
     modal.show();
 }
 
@@ -1167,13 +1589,16 @@ function viewHistoryInvoice(invoiceId) {
     showInvoiceReceipt(invoice);
 }
 
+// Báo cáo doanh thu
 function showRevenueReport() {
     const modal = new bootstrap.Modal(document.getElementById('revenueModal'));
     
+    // Tính toán thống kê
     const today = new Date();
     const thisMonth = today.getMonth();
     const thisYear = today.getFullYear();
     
+    // Filter invoices
     const monthlyInvoices = invoiceHistory.filter(inv => {
         const date = new Date(inv.date);
         return date.getMonth() === thisMonth && date.getFullYear() === thisYear;
@@ -1184,11 +1609,13 @@ function showRevenueReport() {
         return date.toDateString() === today.toDateString();
     });
     
+    // Calculate totals
     const monthlyTotal = monthlyInvoices.reduce((sum, inv) => sum + inv.total, 0);
     const dailyTotal = dailyInvoices.reduce((sum, inv) => sum + inv.total, 0);
     const avgInvoice = invoiceHistory.length > 0 ? 
         invoiceHistory.reduce((sum, inv) => sum + inv.total, 0) / invoiceHistory.length : 0;
     
+    // Display statistics
     const statsHtml = `
         <div class="revenue-stats">
             <div class="stat-card">
@@ -1220,6 +1647,7 @@ function showRevenueReport() {
     
     modal.show();
     
+    // Draw chart
     setTimeout(() => drawRevenueChart(), 100);
 }
 
@@ -1229,6 +1657,7 @@ function drawRevenueChart() {
     
     const ctx = canvas.getContext('2d');
     
+    // Prepare data for last 7 days
     const dailyData = {};
     const today = new Date();
     
@@ -1239,6 +1668,7 @@ function drawRevenueChart() {
         dailyData[dateKey] = 0;
     }
     
+    // Fill with actual data
     invoiceHistory.forEach(invoice => {
         const invoiceDate = new Date(invoice.date).toISOString().split('T')[0];
         if (dailyData[invoiceDate] !== undefined) {
@@ -1246,22 +1676,28 @@ function drawRevenueChart() {
         }
     });
     
+    // Draw chart
     const dates = Object.keys(dailyData);
     const revenues = Object.values(dailyData);
     
+    // Simple bar chart
     const maxRevenue = Math.max(...revenues, 1);
     const barWidth = canvas.width / dates.length - 10;
     
+    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
+    // Draw bars
     dates.forEach((date, index) => {
         const barHeight = (revenues[index] / maxRevenue) * (canvas.height - 50);
         const x = index * (barWidth + 10) + 5;
         const y = canvas.height - barHeight - 30;
         
+        // Bar
         ctx.fillStyle = '#4a6ee0';
         ctx.fillRect(x, y, barWidth, barHeight);
         
+        // Value
         ctx.fillStyle = '#333';
         ctx.font = '10px Arial';
         ctx.textAlign = 'center';
@@ -1271,74 +1707,57 @@ function drawRevenueChart() {
             y - 5
         );
         
+        // Date
         const dateLabel = new Date(date).getDate() + '/' + (new Date(date).getMonth() + 1);
         ctx.fillText(dateLabel, x + barWidth / 2, canvas.height - 10);
     });
 }
 
-// ========== SẢN PHẨM ==========
+// Hiển thị tất cả sản phẩm
 function showAllProducts() {
-    console.log('📦 Hiển thị tất cả sản phẩm');
-    
     const modal = new bootstrap.Modal(document.getElementById('productsModal'));
     
-    if (!products || products.length === 0) {
-        document.getElementById('productsContent').innerHTML = `
-            <div class="no-products-modal text-center py-4">
-                <i class="fas fa-box-open fa-2x text-muted mb-3"></i>
-                <p>Chưa có sản phẩm nào</p>
-                <button class="btn btn-primary mt-3" onclick="showProductModal()">
-                    <i class="fas fa-plus"></i> Thêm sản phẩm
-                </button>
-            </div>
-        `;
-    } else {
-        const productsHtml = `
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="mb-0">Danh sách sản phẩm (${products.length})</h5>
-                <button class="btn btn-sm btn-primary" onclick="showProductModal()">
-                    <i class="fas fa-plus"></i> Thêm mới
-                </button>
-            </div>
-            
-            <div class="products-modal-list">
-                ${products.map(product => {
-                    const category = categories.find(c => c.id === product.categoryId);
-                    const categoryName = category ? category.name : 'Không xác định';
-                    
-                    return `
-                        <div class="product-modal-item">
-                            <div class="product-modal-info">
-                                <div class="product-modal-name">${product.name}</div>
-                                <div class="product-modal-details">
-                                    <span class="badge bg-light text-dark">${product.msp || 'N/A'}</span>
-                                    <span class="badge bg-info">${categoryName}</span>
-                                    <span class="text-primary">${Utils.formatCurrency(product.price)}/${product.unit}</span>
-                                </div>
-                            </div>
-                            <div class="product-modal-stock">
-                                ${product.stock !== undefined ? 
-                                    `<span class="badge ${product.stock > 10 ? 'bg-success' : product.stock > 0 ? 'bg-warning' : 'bg-danger'}">
-                                        Còn: ${product.stock}
-                                    </span>` : 
-                                    '<span class="badge bg-secondary">Không giới hạn</span>'
-                                }
-                            </div>
+    const productsHtml = products.length > 0 ? `
+        <div class="products-modal-list">
+            ${products.map(product => `
+                <div class="product-modal-item">
+                    <div class="product-modal-info">
+                        <div class="product-modal-name">${product.name}</div>
+                        <div class="product-modal-details">
+                            <span>${product.msp}</span>
+                            <span>${product.category}</span>
+                            <span>${Utils.formatCurrency(product.price)}/${product.unit}</span>
                         </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
-        
-        document.getElementById('productsContent').innerHTML = productsHtml;
-    }
+                    </div>
+                    <div class="product-modal-stock">
+                        ${product.stock ? `Còn: ${product.stock}` : 'Không giới hạn'}
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    ` : `
+        <div class="no-products-modal">
+            <i class="fas fa-box-open"></i>
+            <p>Chưa có sản phẩm nào</p>
+        </div>
+    `;
+    
+    document.getElementById('productsContent').innerHTML = productsHtml;
     
     modal.show();
 }
 
-
-// ========== PRODUCT MANAGEMENT ==========
+// Dashboard
+function showDashboard() {
+    // Đóng sidebar nếu đang mở
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar.classList.contains('active')) {
+        toggleSidebar();
+    }
+}
+// Hiển thị modal thêm danh mục
 function showCategoryModal() {
+    // Reset form
     document.getElementById('hkdCategoryName').value = '';
     document.getElementById('hkdCategoryDescription').value = '';
     
@@ -1346,7 +1765,9 @@ function showCategoryModal() {
     modal.show();
 }
 
+// Hiển thị modal thêm hàng hóa
 function showProductModal() {
+    // Reset form
     document.getElementById('hkdProductCode').value = '';
     document.getElementById('hkdProductName').value = '';
     document.getElementById('hkdProductUnit').value = 'cái';
@@ -1354,6 +1775,7 @@ function showProductModal() {
     document.getElementById('hkdProductStock').value = '0';
     document.getElementById('hkdProductDescription').value = '';
     
+    // Load danh mục vào select
     const categorySelect = document.getElementById('hkdProductCategory');
     categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
     
@@ -1367,7 +1789,6 @@ function showProductModal() {
     const modal = new bootstrap.Modal(document.getElementById('hkdProductModal'));
     modal.show();
 }
-
 async function saveHKDCategory() {
     const name = document.getElementById('hkdCategoryName').value.trim();
     const description = document.getElementById('hkdCategoryDescription').value.trim();
@@ -1380,6 +1801,7 @@ async function saveHKDCategory() {
     Utils.showLoading('Đang lưu danh mục...');
     
     try {
+        // Tạo category data
         const categoryId = Utils.generateId();
         const categoryData = {
             id: categoryId,
@@ -1389,22 +1811,28 @@ async function saveHKDCategory() {
             createdAt: new Date().toISOString(),
             lastUpdated: new Date().toISOString(),
             _synced: false,
-            _createdBy: 'hkd'
+            _createdBy: 'hkd' // Đánh dấu HKD tự tạo
         };
         
+        // 1. Lưu vào IndexedDB (hiển thị ngay)
         await updateInStore(STORES.CATEGORIES, categoryData);
+        
+        // 2. Cập nhật UI ngay
         categories.push(categoryData);
         updateCategoryList();
         
+        // 3. Đóng modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('hkdCategoryModal'));
         if (modal) modal.hide();
         
         Utils.showToast(`Đã thêm danh mục "${name}"`, 'success');
         
+        // 4. Sync lên Firebase (admin sẽ thấy realtime)
         setTimeout(async () => {
             try {
                 await initFirebase();
                 
+                // Cấu trúc chuẩn trên Firebase
                 const categoryRef = firebase.database().ref(
                     `hkds/${currentHKD.id}/categories/${categoryId}`
                 );
@@ -1414,13 +1842,14 @@ async function saveHKDCategory() {
                     description: description,
                     createdAt: categoryData.createdAt,
                     lastUpdated: categoryData.lastUpdated,
-                    products: {},
+                    products: {}, // Node products rỗng
                     _syncedAt: new Date().toISOString(),
                     _createdBy: 'hkd'
                 };
                 
                 await categoryRef.set(firebaseData);
                 
+                // Đánh dấu đã sync
                 categoryData._synced = true;
                 categoryData._syncedAt = new Date().toISOString();
                 await updateInStore(STORES.CATEGORIES, categoryData);
@@ -1443,7 +1872,6 @@ async function saveHKDCategory() {
         Utils.hideLoading();
     }
 }
-
 async function saveHKDProduct() {
     const productData = {
         id: Utils.generateId(),
@@ -1459,6 +1887,7 @@ async function saveHKDProduct() {
         _createdBy: 'hkd'
     };
     
+    // Validation
     if (!productData.msp || !productData.name || !productData.categoryId || productData.price <= 0) {
         Utils.showToast('Vui lòng điền đầy đủ thông tin bắt buộc', 'error');
         return;
@@ -1467,19 +1896,25 @@ async function saveHKDProduct() {
     Utils.showLoading('Đang lưu hàng hóa...');
     
     try {
+        // 1. Lưu vào IndexedDB (hiển thị ngay)
         await updateInStore(STORES.PRODUCTS, { ...productData, hkdId: currentHKD.id });
+        
+        // 2. Cập nhật UI ngay
         products.push({ ...productData, hkdId: currentHKD.id });
         displayProducts();
         
+        // 3. Đóng modal
         const modal = bootstrap.Modal.getInstance(document.getElementById('hkdProductModal'));
         if (modal) modal.hide();
         
         Utils.showToast(`Đã thêm sản phẩm "${productData.name}"`, 'success');
         
+        // 4. Sync lên Firebase (admin sẽ thấy realtime)
         setTimeout(async () => {
             try {
                 await initFirebase();
                 
+                // Cấu trúc chuẩn: hkds/{hkdId}/categories/{categoryId}/products/{productId}
                 const productRef = firebase.database().ref(
                     `hkds/${currentHKD.id}/categories/${productData.categoryId}/products/${productData.id}`
                 );
@@ -1498,6 +1933,7 @@ async function saveHKDProduct() {
                 
                 await productRef.set(firebaseData);
                 
+                // Đánh dấu đã sync
                 productData._synced = true;
                 productData._syncedAt = new Date().toISOString();
                 await updateInStore(STORES.PRODUCTS, { ...productData, hkdId: currentHKD.id });
@@ -1520,157 +1956,10 @@ async function saveHKDProduct() {
         Utils.hideLoading();
     }
 }
-
-async function editHKDProduct(productId) {
-    const product = products.find(p => p.id === productId);
-    if (!product) return;
-    
-    document.getElementById('hkdProductCode').value = product.msp || '';
-    document.getElementById('hkdProductName').value = product.name || '';
-    document.getElementById('hkdProductUnit').value = product.unit || 'cái';
-    document.getElementById('hkdProductPrice').value = product.price || 0;
-    document.getElementById('hkdProductStock').value = product.stock || 0;
-    document.getElementById('hkdProductDescription').value = product.description || '';
-    
-    const categorySelect = document.getElementById('hkdProductCategory');
-    categorySelect.innerHTML = '<option value="">Chọn danh mục...</option>';
-    
-    categories.forEach(category => {
-        const option = document.createElement('option');
-        option.value = category.id;
-        option.textContent = category.name;
-        if (category.id === product.categoryId) {
-            option.selected = true;
-        }
-        categorySelect.appendChild(option);
-    });
-    
-    document.getElementById('hkdProductModal').dataset.editId = productId;
-    document.querySelector('#hkdProductModal .modal-title').textContent = 'Sửa hàng hóa';
-    
-    const modal = new bootstrap.Modal(document.getElementById('hkdProductModal'));
-    modal.show();
-}
-
-async function deleteHKDProduct(productId) {
-    const confirmed = await Utils.confirm('Bạn có chắc muốn xóa sản phẩm này?');
-    if (!confirmed) return;
-    
-    Utils.showLoading('Đang xóa...');
-    
-    try {
-        const product = products.find(p => p.id === productId);
-        if (!product) return;
-        
-        await deleteFromStore(STORES.PRODUCTS, productId);
-        products = products.filter(p => p.id !== productId);
-        displayProducts();
-        
-        Utils.showToast('Đã xóa sản phẩm', 'success');
-        
-        setTimeout(async () => {
-            try {
-                await initFirebase();
-                
-                const productRef = firebase.database().ref(
-                    `hkds/${currentHKD.id}/categories/${product.categoryId}/products/${productId}`
-                );
-                
-                await productRef.update({
-                    _deleted: true,
-                    _deletedAt: new Date().toISOString(),
-                    lastUpdated: new Date().toISOString()
-                });
-                
-                console.log('✅ HKD đã xóa sản phẩm trên Firebase');
-                
-            } catch (firebaseError) {
-                console.error('❌ Lỗi sync delete:', firebaseError);
-                await addToSyncQueue({
-                    type: 'products_delete',
-                    data: {
-                        id: productId,
-                        hkdId: currentHKD.id,
-                        categoryId: product.categoryId
-                    }
-                });
-            }
-        }, 100);
-        
-    } catch (error) {
-        console.error('❌ Lỗi xóa sản phẩm:', error);
-        Utils.showToast('Lỗi: ' + error.message, 'error');
-    } finally {
-        Utils.hideLoading();
-    }
-}
-
-async function deleteHKDCategory(categoryId) {
-    const category = categories.find(c => c.id === categoryId);
-    if (!category) return;
-    
-    if (category._createdBy !== 'hkd') {
-        Utils.showToast('Không thể xóa danh mục của Admin', 'error');
-        return;
-    }
-    
-    const confirmed = await Utils.confirm(
-        `Xóa danh mục "${category.name}"? Tất cả sản phẩm trong danh mục sẽ bị xóa.`
-    );
-    if (!confirmed) return;
-    
-    Utils.showLoading('Đang xóa danh mục...');
-    
-    try {
-        const categoryProducts = products.filter(p => p.categoryId === categoryId);
-        for (const product of categoryProducts) {
-            await deleteFromStore(STORES.PRODUCTS, product.id);
-        }
-        
-        await deleteFromStore(STORES.CATEGORIES, categoryId);
-        
-        categories = categories.filter(c => c.id !== categoryId);
-        products = products.filter(p => p.categoryId !== categoryId);
-        
-        displayProducts();
-        updateCategoryList();
-        await loadHKDManagementData();
-        
-        Utils.showToast(`Đã xóa danh mục "${category.name}"`, 'success');
-        
-        setTimeout(async () => {
-            try {
-                await initFirebase();
-                
-                const categoryRef = firebase.database().ref(
-                    `hkds/${currentHKD.id}/categories/${categoryId}`
-                );
-                await categoryRef.remove();
-                
-                console.log('✅ HKD đã xóa danh mục trên Firebase');
-                
-            } catch (firebaseError) {
-                console.error('❌ Lỗi sync delete category:', firebaseError);
-                await addToSyncQueue({
-                    type: 'categories_delete',
-                    data: {
-                        id: categoryId,
-                        hkdId: currentHKD.id
-                    }
-                });
-            }
-        }, 100);
-        
-    } catch (error) {
-        console.error('❌ Lỗi xóa danh mục:', error);
-        Utils.showToast('Lỗi: ' + error.message, 'error');
-    } finally {
-        Utils.hideLoading();
-    }
-}
-
+// Load dữ liệu quản lý HKD
 async function loadHKDManagementData() {
     try {
+        // 1. Load danh mục (chỉ của HKD này)
         const categoriesList = document.getElementById('hkdCategoriesList');
         if (categoriesList) {
             categoriesList.innerHTML = categories.map(category => `
@@ -1707,6 +1996,7 @@ async function loadHKDManagementData() {
             }
         }
         
+        // 2. Load hàng hóa vào table
         const productsTable = document.getElementById('hkdProductsTable');
         if (productsTable) {
             productsTable.innerHTML = products.map(product => {
@@ -1755,304 +2045,79 @@ async function loadHKDManagementData() {
         console.error('❌ Lỗi load dữ liệu quản lý:', error);
     }
 }
-
-function showAllManagement() {
-    console.log('📋 Hiển thị trang quản lý HKD');
+// Xóa danh mục (HKD chỉ xóa được danh mục tự tạo)
+async function deleteHKDCategory(categoryId) {
+    const category = categories.find(c => c.id === categoryId);
+    if (!category) return;
     
-    const modal = new bootstrap.Modal(document.getElementById('hkdManagementModal'));
-    loadHKDManagementData();
-    modal.show();
-}
-
-// ========== SIDEBAR FUNCTIONS ==========
-function initSidebar() {
-    const menuItems = [
-        { 
-            id: 'dashboard', 
-            icon: 'fa-home', 
-            text: 'Bán hàng', 
-            action: showDashboard 
-        },
-        { 
-            id: 'history', 
-            icon: 'fa-history', 
-            text: 'Lịch sử', 
-            action: showInvoiceHistory 
-        },
-        { 
-            id: 'revenue', 
-            icon: 'fa-chart-line', 
-            text: 'Doanh thu', 
-            action: showRevenueReport 
-        },
-        { 
-            id: 'products', 
-            icon: 'fa-boxes', 
-            text: 'Sản phẩm', 
-            action: showAllProducts 
-        },
-        { 
-            id: 'management', 
-            icon: 'fa-cog', 
-            text: 'Quản lý', 
-            action: showAllManagement 
-        },
-        { 
-            id: 'sync', 
-            icon: 'fa-sync-alt', 
-            text: 'Đồng bộ', 
-            action: handleSidebarSync 
-        },
-        { 
-            id: 'logout', 
-            icon: 'fa-sign-out-alt', 
-            text: 'Đăng xuất', 
-            action: handleLogout 
-        }
-    ];
-    
-    const menuContainer = document.getElementById('sidebarMenu');
-    if (!menuContainer) {
-        console.error('❌ Không tìm thấy sidebarMenu container');
+    // Kiểm tra quyền: chỉ xóa được danh mục tự tạo
+    if (category._createdBy !== 'hkd') {
+        Utils.showToast('Không thể xóa danh mục của Admin', 'error');
         return;
     }
     
-    menuContainer.innerHTML = menuItems.map(item => `
-        <div class="menu-item" id="menu-${item.id}" onclick="handleMenuItemClick('${item.id}')">
-            <i class="fas ${item.icon}"></i>
-            <span>${item.text}</span>
-        </div>
-    `).join('');
+    const confirmed = await Utils.confirm(
+        `Xóa danh mục "${category.name}"? Tất cả sản phẩm trong danh mục sẽ bị xóa.`
+    );
+    if (!confirmed) return;
     
-    console.log('✅ Sidebar đã được khởi tạo');
-}
-function handleMenuItemClick(menuId) {
-    console.log(`🎯 Menu item clicked: ${menuId}`);
-    
-    switch(menuId) {
-        case 'dashboard':
-            showDashboard();
-            break;
-        case 'history':
-            showInvoiceHistory();
-            break;
-        case 'revenue':
-            showRevenueReport();
-            break;
-        case 'products':
-            showAllProducts();
-            break;
-        case 'management':
-            showAllManagement();
-            break;
-        case 'sync':
-            handleSidebarSync();
-            break;
-        case 'logout':
-            handleLogout();
-            break;
-        default:
-            console.warn(`⚠️ Menu item không xác định: ${menuId}`);
-    }
-    
-    // Đóng sidebar (trừ trường hợp logout)
-    if (menuId !== 'logout') {
-        toggleSidebar();
-    }
-}
-async function handleSidebarSync() {
-    console.log('🔄 Bắt đầu đồng bộ thủ công...');
+    Utils.showLoading('Đang xóa danh mục...');
     
     try {
-        Utils.showLoading('Đang đồng bộ dữ liệu...');
+        // 1. Xóa sản phẩm trong danh mục
+        const categoryProducts = products.filter(p => p.categoryId === categoryId);
+        for (const product of categoryProducts) {
+            await deleteFromStore(STORES.PRODUCTS, product.id);
+        }
         
-        // 1. Đồng bộ từ Firebase về
-        await syncFromFirebase();
+        // 2. Xóa danh mục
+        await deleteFromStore(STORES.CATEGORIES, categoryId);
         
-        // 2. Tải lại dữ liệu
-        await loadHKDData();
+        // 3. Cập nhật UI
+        categories = categories.filter(c => c.id !== categoryId);
+        products = products.filter(p => p.categoryId !== categoryId);
+        
+        // Reload cả trang bán hàng và modal quản lý
         displayProducts();
+        updateCategoryList();
+        await loadHKDManagementData();
         
-        Utils.showToast('Đã đồng bộ dữ liệu thành công', 'success');
+        Utils.showToast(`Đã xóa danh mục "${category.name}"`, 'success');
+        
+        // 4. Sync xóa lên Firebase
+        setTimeout(async () => {
+            try {
+                await initFirebase();
+                
+                // Xóa trên Firebase
+                const categoryRef = firebase.database().ref(
+                    `hkds/${currentHKD.id}/categories/${categoryId}`
+                );
+                await categoryRef.remove();
+                
+                console.log('✅ HKD đã xóa danh mục trên Firebase');
+                
+            } catch (firebaseError) {
+                console.error('❌ Lỗi sync delete category:', firebaseError);
+                await addToSyncQueue({
+                    type: 'categories_delete',
+                    data: {
+                        id: categoryId,
+                        hkdId: currentHKD.id
+                    }
+                });
+            }
+        }, 100);
         
     } catch (error) {
-        console.error('❌ Lỗi đồng bộ:', error);
-        Utils.showToast('Lỗi đồng bộ dữ liệu', 'error');
+        console.error('❌ Lỗi xóa danh mục:', error);
+        Utils.showToast('Lỗi: ' + error.message, 'error');
     } finally {
         Utils.hideLoading();
     }
 }
-function logout() {
-    console.log('🚪 Đăng xuất...');
-    
-    try {
-        // Xóa thông tin user từ localStorage
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('userToken');
-        
-        // Xóa cart của HKD hiện tại
-        if (currentHKD) {
-            localStorage.removeItem(`cart_${currentHKD.id}`);
-        }
-        
-        // Chuyển hướng về trang login
-        window.location.href = 'login.html?type=hkd';
-        
-    } catch (error) {
-        console.error('❌ Lỗi đăng xuất:', error);
-        window.location.href = 'login.html?type=hkd';
-    }
-}
 
-function handleLogout() {
-    const confirmed = confirm('Bạn có chắc chắn muốn đăng xuất?');
-    if (confirmed) {
-        logout();
-    }
-}
-function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    if (!sidebar) {
-        console.error('❌ Không tìm thấy sidebar');
-        return;
-    }
-    
-    sidebar.classList.toggle('active');
-    
-    // Toggle overlay
-    const overlay = document.getElementById('sidebarOverlay');
-    if (overlay) {
-        overlay.classList.toggle('active');
-    } else {
-        // Tạo overlay nếu chưa có
-        createSidebarOverlay();
-    }
-}
-function createSidebarOverlay() {
-    const overlay = document.createElement('div');
-    overlay.id = 'sidebarOverlay';
-    overlay.className = 'sidebar-overlay';
-    overlay.onclick = toggleSidebar;
-    document.body.appendChild(overlay);
-    
-    // Thêm animation
-    setTimeout(() => overlay.classList.add('active'), 10);
-}
-
-function showDashboard() {
-    const sidebar = document.getElementById('sidebar');
-    if (sidebar.classList.contains('active')) {
-        toggleSidebar();
-    }
-}
-
-function updateSyncStatus() {
-    const syncStatusEl = document.getElementById('syncStatus');
-    if (!syncStatusEl) return;
-    
-    if (navigator.onLine) {
-        if (isSyncing) {
-            syncStatusEl.className = 'sync-status syncing';
-            syncStatusEl.innerHTML = '<i class="fas fa-sync fa-spin"></i> <span>Đang đồng bộ...</span>';
-        } else {
-            syncStatusEl.className = 'sync-status';
-            syncStatusEl.innerHTML = '<i class="fas fa-wifi"></i> <span>Đã kết nối</span>';
-        }
-    } else {
-        syncStatusEl.className = 'sync-status offline';
-        syncStatusEl.innerHTML = '<i class="fas fa-wifi-slash"></i> <span>Đang offline</span>';
-    }
-}
-
-async function forceSync() {
-    const confirmSync = confirm("Hệ thống sẽ xóa dữ liệu tạm trên máy và tải lại từ Server để tránh lỗi trùng lặp. Bạn có muốn tiếp tục?");
-    if (!confirmSync) return;
-
-    try {
-        // SỬA Ở ĐÂY: Thêm Utils. trước showLoading
-        if (typeof Utils !== 'undefined' && Utils.showLoading) {
-            Utils.showLoading(true, 'Đang làm mới toàn bộ dữ liệu...');
-        }
-        
-        console.log('Sweep: Cleaning IndexedDB...');
-        const db = await getDB();
-        const storesToClear = [STORES.PRODUCTS, STORES.CATEGORIES, STORES.INVOICES];
-        
-        for (const storeName of storesToClear) {
-            const transaction = db.transaction(storeName, 'readwrite');
-            await new Promise((resolve) => {
-                transaction.objectStore(storeName).clear().onsuccess = () => resolve();
-            });
-        }
-
-        console.log('📥 Syncing from Firebase...');
-        await syncFromFirebase(); 
-        
-        // SỬA Ở ĐÂY: Thêm Utils. trước showToast (nếu có lỗi tương tự)
-        if (typeof Utils !== 'undefined' && Utils.showToast) {
-            Utils.showToast('✅ Đã làm mới dữ liệu thành công!', 'success');
-        }
-        
-        setTimeout(() => {
-            location.reload();
-        }, 1000);
-
-    } catch (error) {
-        console.error('❌ Lỗi khi buộc đồng bộ:', error);
-        if (typeof Utils !== 'undefined' && Utils.showToast) {
-            Utils.showToast('Lỗi đồng bộ: ' + error.message, 'error');
-        }
-    } finally {
-        // SỬA Ở ĐÂY: Thêm Utils. trước showLoading(false) thay vì hideLoading()
-        if (typeof Utils !== 'undefined' && Utils.showLoading) {
-            Utils.showLoading(false);
-        }
-    }
-}
-window.handleSidebarSync = async function() {
-    await forceSync(); // Gọi hàm forceSync đã sửa ở trên
-};
-function cleanupHKD() {
-   
-    
-    window.removeEventListener('online', handleHKDConnectionChange);
-    window.removeEventListener('offline', handleHKDConnectionChange);
-    
-    console.log('🧹 Đã dọn dẹp HKD sync');
-}
-
-// ========== UTILITY FUNCTIONS ==========
-function getCategoryNameById(categoryId) {
-    if (!categoryId || !categories) return '';
-    const category = categories.find(c => c && c.id === categoryId);
-    return category ? category.name : '';
-}
-
-function debugProductCategories() {
-    console.log('=== DEBUG PRODUCT CATEGORIES ===');
-    console.log(`📊 Total products: ${products.length}`);
-    console.log(`📊 Total categories: ${categories.length}`);
-    
-    products.forEach((product, index) => {
-        const categoryName = getCategoryNameById(product.categoryId);
-        console.log(`  Product ${index + 1}:`, {
-            name: product.name,
-            categoryId: product.categoryId,
-            categoryName: categoryName,
-            hasCategoryField: !!product.category,
-            categoryField: product.category
-        });
-    });
-    
-    categories.forEach((category, index) => {
-        console.log(`  Category ${index + 1}:`, {
-            id: category.id,
-            name: category.name,
-            hkdId: category.hkdId
-        });
-    });
-}
-
+// Hàm gọi điện thoại
 function callSupport() {
     const phone = '0932155035';
     
@@ -2061,6 +2126,7 @@ function callSupport() {
     }
 }
 
+// Hàm sao chép số điện thoại
 function copyPhoneNumber() {
     const phone = '0932155035';
     
@@ -2071,127 +2137,16 @@ function copyPhoneNumber() {
         Utils.showToast('Lỗi sao chép', 'error');
     });
 }
-
-// ========== EVENT LISTENERS ==========
-// ========== EVENT LISTENERS ==========
-function setupHKDEventListeners() {
-    console.log('🎯 Thiết lập event listeners cho HKD');
-    
-    // Sidebar toggle - KIỂM TRA PHẦN TỬ TỒN TẠI TRƯỚC KHI THÊM EVENT
-    const menuToggle = document.getElementById('menuToggle');
-    if (menuToggle) {
-        console.log('✅ Tìm thấy menuToggle, thêm event listener');
-        menuToggle.addEventListener('click', toggleSidebar);
-    } else {
-        console.error('❌ Không tìm thấy phần tử menuToggle');
-    }
-    
-    // Category filter - SỬ DỤNG EVENT DELEGATION
-    document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('category-filter')) {
-            filterProductsByCategory(e.target.dataset.category);
-        }
-    });
-    
-    // Product click - SỬ DỤNG EVENT DELEGATION
-    const productGrid = document.getElementById('productGrid');
-    if (productGrid) {
-        productGrid.addEventListener('click', (e) => {
-            const productCard = e.target.closest('.product-card');
-            if (productCard) {
-                const productId = productCard.dataset.productId;
-                addToCart(productId);
-            }
-        });
-    } else {
-        console.warn('⚠️ Không tìm thấy productGrid');
-    }
-    
-    // Cart actions - KIỂM TRA TỒN TẠI
-    const clearCartBtn = document.getElementById('clearCart');
-    if (clearCartBtn) {
-        clearCartBtn.addEventListener('click', clearCart);
-    }
-    
-    const createInvoiceBtn = document.getElementById('createInvoice');
-    if (createInvoiceBtn) {
-        createInvoiceBtn.addEventListener('click', createInvoice);
-    }
-    
-    // Footer buttons - KIỂM TRA TỒN TẠI
-    const clearCartFooterBtn = document.getElementById('clearCartFooter');
-    if (clearCartFooterBtn) {
-        clearCartFooterBtn.addEventListener('click', clearCart);
-    }
-    
-    const createInvoiceFooterBtn = document.getElementById('createInvoiceFooter');
-    if (createInvoiceFooterBtn) {
-        createInvoiceFooterBtn.addEventListener('click', createInvoice);
-    }
-    
-    // Invoice history - KIỂM TRA TỒN TẠI (nếu vẫn cần cho sidebar)
-    const viewHistoryBtn = document.getElementById('viewHistory');
-    if (viewHistoryBtn) {
-        viewHistoryBtn.addEventListener('click', showInvoiceHistory);
-    }
-    
-    const viewRevenueBtn = document.getElementById('viewRevenue');
-    if (viewRevenueBtn) {
-        viewRevenueBtn.addEventListener('click', showRevenueReport);
-    }
-    
-    // Customer name input
-    const customerNameInput = document.getElementById('customerName');
-    if (customerNameInput) {
-        customerNameInput.addEventListener('input', (e) => {
-            updateCartSummary();
-        });
-    }
-    
-    // Close sidebar khi click outside
-    document.addEventListener('click', (e) => {
-        const sidebar = document.getElementById('sidebar');
-        const menuToggle = document.getElementById('menuToggle');
-        
-        if (sidebar && sidebar.classList.contains('active') &&
-            !sidebar.contains(e.target) &&
-            menuToggle && !menuToggle.contains(e.target)) {
-            toggleSidebar();
-        }
-    });
-    
-    console.log('✅ Đã thiết lập xong event listeners');
-}
-
-// ========== EXPORT FUNCTIONS ==========
+// Xuất các hàm global
 window.removeFromCart = removeFromCart;
 window.addToCart = addToCart;
 window.viewHistoryInvoice = viewHistoryInvoice;
 window.toggleSidebar = toggleSidebar;
+// Thêm vào cuối hkd.js
 window.forceSync = forceSync;
 window.syncFromFirebase = syncFromFirebase;
 window.cleanupHKD = cleanupHKD;
-window.debugProductCategories = debugProductCategories;
-window.callSupport = callSupport;
-window.copyPhoneNumber = copyPhoneNumber;
-window.editHKDProduct = editHKDProduct;
-window.deleteHKDProduct = deleteHKDProduct;
-window.deleteHKDCategory = deleteHKDCategory;
-window.showCategoryModal = showCategoryModal;
-window.showProductModal = showProductModal;
-window.saveHKDCategory = saveHKDCategory;
-window.saveHKDProduct = saveHKDProduct;
-// ========== THÊM VÀO PHẦN EXPORT ==========
-// Thêm vào cuối file, trong phần export
-window.showDashboard = showDashboard;
-window.showInvoiceHistory = showInvoiceHistory;
-window.showRevenueReport = showRevenueReport;
-window.showAllProducts = showAllProducts;
-window.showAllManagement = showAllManagement;
-window.handleSidebarSync = handleSidebarSync;
-window.handleLogout = handleLogout;
-window.handleMenuItemClick = handleMenuItemClick;
-window.logout = logout;
+
 // Dọn dẹp khi page unload
 window.addEventListener('beforeunload', cleanupHKD);
 window.addEventListener('pagehide', cleanupHKD);
